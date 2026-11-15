@@ -79,9 +79,12 @@ export default function App() {
     };
   }, [currentPlayer?.id, currentPlayer?.status]);
 
-  // Clear local session pointer if admin wiped/removed this player
+  // Clear local session pointer if admin wiped/removed this player or player explicitly left
   useEffect(() => {
-    if (activePlayerId && !storeState.players[activePlayerId]) {
+    if (
+      activePlayerId &&
+      (!storeState.players[activePlayerId] || storeState.players[activePlayerId].status === 'left')
+    ) {
       setStoredPlayerId(null);
       setActivePlayerId(null);
     }

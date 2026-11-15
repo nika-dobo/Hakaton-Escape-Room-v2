@@ -414,7 +414,10 @@ export function getStoreSnapshot() {
 
 export function getStoredPlayerId() {
   try {
-    return window.sessionStorage.getItem(PLAYER_SESSION_KEY);
+    return (
+      window.localStorage.getItem(PLAYER_SESSION_KEY) ||
+      window.sessionStorage.getItem(PLAYER_SESSION_KEY)
+    );
   } catch {
     return null;
   }
@@ -423,12 +426,14 @@ export function getStoredPlayerId() {
 export function setStoredPlayerId(playerId) {
   try {
     if (playerId) {
+      window.localStorage.setItem(PLAYER_SESSION_KEY, playerId);
       window.sessionStorage.setItem(PLAYER_SESSION_KEY, playerId);
     } else {
+      window.localStorage.removeItem(PLAYER_SESSION_KEY);
       window.sessionStorage.removeItem(PLAYER_SESSION_KEY);
     }
   } catch {
-    // Ignore sessionStorage errors
+    // Ignore storage errors
   }
 }
 
