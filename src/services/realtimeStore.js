@@ -127,6 +127,7 @@ let inFlightPostCount = 0;
 let lastMutationAt = 0;
 let mutationCounter = 0;
 let sessionTerminatedNotice = '';
+let lastExitedBriefingPlayerId = null;
 
 // Strictly per-tab player session ID so multiple tabs in the same browser never collide
 let tabPlayerId = null;
@@ -430,10 +431,18 @@ function mergeIncomingState(incoming) {
       if (mergedRemovedIds[id] && (incP.createdAt || 0) <= Number(mergedRemovedIds[id])) continue;
       nextPlayers[id] = mergeSinglePlayer(currentState.players[id], incP);
     }
-    // Keep any very recently mutated/created local players (within last 3s) not yet reflected
+    // Never drop active tab's own player or recently mutated players (within last 6s)
     const now = Date.now();
     for (const [id, locP] of Object.entries(currentState.players || {})) {
-      if (!nextPlayers[id] && !mergedRemovedIds[id] && now - (locP.lastUpdated || 0) < 3000) {
+      if (
+        !nextPlayers[id] &&
+        !mergedRemovedIds[id] &&
+        (id === myPlayerId ||
+          locP.status === 'left' ||
+          locP.status === 'completed' ||
+          locP.status === 'timeout' ||
+          now - (locP.lastUpdated || 0) < 6000)
+      ) {
         nextPlayers[id] = locP;
       }
     }
@@ -556,23 +565,44 @@ function mergeIncomingState(incoming) {
 }
 
 function buildRequestHeaders() {
-  return {
+  const activeId = getStoredPlayerId() || '';
+  const activePlayer = activeId ? currentState.players?.[activeId] : null;
+  const { adminPasswordHash, ...publicSettings } = currentState.settings || {};
+
+  const headers = {
     'Content-Type': 'application/json',
-    'x-player-id': getStoredPlayerId() || '',
+    'x-player-id': activeId,
     'x-cipher-admin': isAdminAuthenticated() ? '1' : '0',
+    'x-reset-epoch': String(currentState.resetEpoch || 0),
   };
+
+  try {
+    if (publicSettings && Number(publicSettings.updatedAt) > 0) {
+      headers['x-settings-sync'] = encodeURIComponent(JSON.stringify(publicSettings));
+    }
+    if (activePlayer && activePlayer.id) {
+      headers['x-player-sync'] = encodeURIComponent(JSON.stringify(activePlayer));
+    }
+  } catch {
+    // ignore header encoding errors
+  }
+
+  return headers;
 }
 
 async function postServerAction(action) {
   inFlightPostCount += 1;
   const mySeq = ++mutationCounter;
   try {
+    const activeId = getStoredPlayerId() || '';
+    const activePlayer = activeId ? currentState.players?.[activeId] : null;
     const payload = {
       ...action,
       _sync: {
         resetEpoch: currentState.resetEpoch || 0,
         removedIds: currentState.removedIds || {},
         settings: currentState.settings,
+        ...(activePlayer ? { player: activePlayer } : {}),
       },
     };
     const res = await fetch('/api/state', {
@@ -582,7 +612,16 @@ async function postServerAction(action) {
     });
     if (res.ok) {
       const serverState = await res.json();
-      if (mySeq === mutationCounter) {
+      if (serverState?.resumedPlayerId) {
+        const oldId = action.player?.id;
+        if (oldId && oldId !== serverState.resumedPlayerId) {
+          const cleaned = { ...currentState.players };
+          delete cleaned[oldId];
+          currentState = { ...currentState, players: cleaned };
+        }
+        setStoredPlayerId(serverState.resumedPlayerId);
+      }
+      if (mySeq === mutationCounter || serverState?.resumedPlayerId) {
         mergeIncomingState({ ...serverState, fromServer: true, fromAction: action.type });
       }
     }
@@ -599,10 +638,7 @@ export async function pollServerState() {
   try {
     const res = await fetch('/api/state', {
       cache: 'no-store',
-      headers: {
-        'x-player-id': getStoredPlayerId() || '',
-        'x-cipher-admin': isAdminAuthenticated() ? '1' : '0',
-      },
+      headers: buildRequestHeaders(),
     });
     if (res.ok) {
       if (inFlightPostCount > 0 || mySeqAtStart !== mutationCounter) return;
@@ -798,6 +834,7 @@ function commitPlayer(updatedPlayer, options = {}) {
     player: playerWithSeq,
     isNewRegistration: Boolean(options.isNewRegistration),
     isRejoin: Boolean(options.isRejoin),
+    ...(options.replacingPlayerId ? { replacingPlayerId: options.replacingPlayerId } : {}),
   });
   pushPlayerToCloudDb(playerWithSeq);
   return playerWithSeq;
@@ -994,8 +1031,10 @@ export function registerPlayer(rawName) {
     lastEvent: 'Joined (Briefing Room)',
   };
 
+  const replacingId = lastExitedBriefingPlayerId;
+  lastExitedBriefingPlayerId = null;
   setStoredPlayerId(id);
-  commitPlayer(player, { isNewRegistration: true });
+  commitPlayer(player, { isNewRegistration: true, replacingPlayerId: replacingId });
   return { ok: true, player };
 }
 
@@ -1254,6 +1293,7 @@ export function markPlayerDisconnected(playerId, reason = 'closed') {
 
   // If the player was still in the Briefing Room and clicked "Change Name", remove the unstarted session cleanly
   if (reason === 'left' && existing.status === 'briefing' && !existing.startTime) {
+    lastExitedBriefingPlayerId = playerId;
     removePlayerSession(playerId);
     return;
   }

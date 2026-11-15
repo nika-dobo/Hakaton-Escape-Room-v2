@@ -102,6 +102,67 @@ function readJsonBody(req) {
   });
 }
 
+function mergePlayerOnServer(existing, incoming, now = Date.now()) {
+  if (!existing) return incoming;
+  if (!incoming) return existing;
+
+  const existingRun = existing.runId || existing.createdAt || 0;
+  const incomingRun = incoming.runId || incoming.createdAt || 0;
+  if (existingRun !== incomingRun) {
+    return (incoming.lastUpdated || 0) >= (existing.lastUpdated || 0) ? incoming : existing;
+  }
+
+  const existingSeq = Number(existing.clientSeq) || 0;
+  const incomingSeq = Number(incoming.clientSeq) || 0;
+  const newer =
+    incomingSeq > existingSeq ||
+    (incomingSeq === existingSeq && (incoming.lastUpdated || 0) >= (existing.lastUpdated || 0))
+      ? incoming
+      : existing;
+  const older = newer === incoming ? existing : incoming;
+
+  const solvedRoomIds = Array.from(
+    new Set([...(older.solvedRoomIds || []), ...(newer.solvedRoomIds || [])])
+  );
+  const unlockedHintRooms = Array.from(
+    new Set([...(older.unlockedHintRooms || []), ...(newer.unlockedHintRooms || [])])
+  );
+  const mergedStartTime = newer.startTime || older.startTime || null;
+  let mergedStatus = newer.status;
+  if (mergedStartTime && mergedStatus === 'briefing') {
+    mergedStatus = older.status === 'briefing' ? 'active' : older.status;
+  }
+
+  return {
+    ...older,
+    ...newer,
+    status: mergedStatus,
+    startTime: mergedStartTime,
+    currentRoom: Math.max(Number(existing.currentRoom) || 1, Number(incoming.currentRoom) || 1),
+    completedRooms: Math.max(
+      solvedRoomIds.length,
+      Number(existing.completedRooms) || 0,
+      Number(incoming.completedRooms) || 0
+    ),
+    solvedRoomIds,
+    hintsUsed: Math.max(Number(existing.hintsUsed) || 0, Number(incoming.hintsUsed) || 0),
+    wrongAttempts: Math.max(
+      Number(existing.wrongAttempts) || 0,
+      Number(incoming.wrongAttempts) || 0
+    ),
+    skippedCount: Math.max(Number(existing.skippedCount) || 0, Number(incoming.skippedCount) || 0),
+    tabSwitches: Math.max(Number(existing.tabSwitches) || 0, Number(incoming.tabSwitches) || 0),
+    unlockedHintRooms,
+    clientSeq: Math.max(existingSeq, incomingSeq),
+    lastHeartbeat: Math.max(
+      now,
+      Number(existing.lastHeartbeat) || 0,
+      Number(incoming.lastHeartbeat) || 0
+    ),
+    lastUpdated: Math.max(Number(existing.lastUpdated) || 0, Number(incoming.lastUpdated) || 0),
+  };
+}
+
 function buildPublicLeaderboard(state, now = Date.now()) {
   const players = Object.values(state?.players || {});
   const fallbackMins = state?.settings?.globalDurationMinutes || 60;
@@ -180,8 +241,9 @@ function buildClientPayload(state, req, extra = {}) {
 }
 
 function applyClientSyncMeta(state, syncMeta) {
-  if (!syncMeta || typeof syncMeta !== 'object') return state;
+  if (!syncMeta || typeof syncMeta !== 'object') return { state, changed: false };
   let next = state;
+  let changed = false;
 
   const incomingEpoch = Number(syncMeta.resetEpoch) || 0;
   if (incomingEpoch > (next.resetEpoch || 0)) {
@@ -197,14 +259,19 @@ function applyClientSyncMeta(state, syncMeta) {
       removedIds: {},
       resetEpoch: incomingEpoch,
     };
+    changed = true;
   }
 
   if (syncMeta.removedIds && typeof syncMeta.removedIds === 'object') {
-    next.removedIds = { ...(next.removedIds || {}), ...syncMeta.removedIds };
-    for (const [remId, remAt] of Object.entries(next.removedIds)) {
+    for (const [remId, remAt] of Object.entries(syncMeta.removedIds)) {
+      if (!next.removedIds?.[remId] || Number(remAt) > Number(next.removedIds[remId])) {
+        next.removedIds = { ...(next.removedIds || {}), [remId]: Number(remAt) };
+        changed = true;
+      }
       const existing = next.players?.[remId];
       if (existing && (existing.createdAt || 0) <= Number(remAt)) {
         delete next.players[remId];
+        changed = true;
       }
     }
   }
@@ -241,9 +308,58 @@ function applyClientSyncMeta(state, syncMeta) {
           : next.settings.freeHintsCount,
       updatedAt: Number(incSettings.updatedAt),
     };
+    changed = true;
   }
 
-  return next;
+  const syncPlayer = syncMeta.player;
+  if (
+    syncPlayer &&
+    typeof syncPlayer === 'object' &&
+    syncPlayer.id &&
+    (syncPlayer.createdAt || 0) >= (next.resetEpoch || 0) &&
+    !next.removedIds?.[syncPlayer.id]
+  ) {
+    const existing = next.players?.[syncPlayer.id];
+    if (
+      !existing ||
+      (Number(syncPlayer.clientSeq) || 0) > (Number(existing.clientSeq) || 0) ||
+      (Number(syncPlayer.lastUpdated) || 0) > (Number(existing.lastUpdated) || 0)
+    ) {
+      next.players = {
+        ...(next.players || {}),
+        [syncPlayer.id]: mergePlayerOnServer(existing, syncPlayer),
+      };
+      changed = true;
+    }
+  }
+
+  return { state: next, changed };
+}
+
+function extractHeaderSyncMeta(req) {
+  if (!req?.headers) return null;
+  const meta = {};
+  const epochHdr = req.headers['x-reset-epoch'];
+  if (epochHdr) {
+    meta.resetEpoch = Number(epochHdr) || 0;
+  }
+  const settingsHdr = req.headers['x-settings-sync'];
+  if (settingsHdr) {
+    try {
+      meta.settings = JSON.parse(decodeURIComponent(settingsHdr));
+    } catch {
+      // ignore malformed header
+    }
+  }
+  const playerHdr = req.headers['x-player-sync'];
+  if (playerHdr) {
+    try {
+      meta.player = JSON.parse(decodeURIComponent(playerHdr));
+    } catch {
+      // ignore malformed header
+    }
+  }
+  return Object.keys(meta).length > 0 ? meta : null;
 }
 
 function escapeStateApiPlugin() {
@@ -286,13 +402,22 @@ function escapeStateApiPlugin() {
         res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
         res.setHeader(
           'Access-Control-Allow-Headers',
-          'Content-Type, x-player-id, x-cipher-admin'
+          'Content-Type, x-player-id, x-cipher-admin, x-reset-epoch, x-settings-sync, x-player-sync'
         );
 
         if (req.method === 'OPTIONS') {
           res.statusCode = 204;
           res.end();
           return;
+        }
+
+        const hdrSync = extractHeaderSyncMeta(req);
+        if (hdrSync) {
+          const synced = applyClientSyncMeta(state, hdrSync);
+          state = synced.state;
+          if (synced.changed && req.method === 'GET') {
+            savePersistedState(state);
+          }
         }
 
         if (req.method === 'GET') {
@@ -307,7 +432,8 @@ function escapeStateApiPlugin() {
             const action = await readJsonBody(req);
             const now = Date.now();
 
-            state = applyClientSyncMeta(state, action._sync);
+            const bodySynced = applyClientSyncMeta(state, action._sync);
+            state = bodySynced.state;
 
             if (action.type === 'VERIFY_ADMIN') {
               const expected = state.settings?.adminPasswordHash || 'admin123';
@@ -317,6 +443,9 @@ function escapeStateApiPlugin() {
               res.end(JSON.stringify({ ok }));
               return;
             }
+
+            let targetPlayerId = action.player?.id || action.playerId;
+            let resumedPlayerId = null;
 
             if (action.type === 'UPSERT_PLAYER' && action.player?.id) {
               const p = action.player;
@@ -331,12 +460,22 @@ function escapeStateApiPlugin() {
                 return;
               }
 
+              if (action.replacingPlayerId && state.players[action.replacingPlayerId]) {
+                delete state.players[action.replacingPlayerId];
+              }
+
               const incomingName = String(p.name || '').trim().toLowerCase();
               const existingByName = incomingName
                 ? Object.values(state.players).find(
                     (other) => String(other.name || '').trim().toLowerCase() === incomingName
                   )
                 : null;
+
+              const configuredMins = Number(state.settings?.globalDurationMinutes) || 60;
+              const configuredFreeHints =
+                state.settings?.freeHintsCount !== undefined
+                  ? Number(state.settings.freeHintsCount)
+                  : 3;
 
               if (existingByName && existingByName.id !== p.id) {
                 const lastSeen = existingByName.lastHeartbeat || existingByName.lastUpdated || 0;
@@ -355,89 +494,116 @@ function escapeStateApiPlugin() {
                   );
                   return;
                 }
-                delete state.players[existingByName.id];
-              }
 
-              delete state.removedIds[p.id];
-              const existing = state.players[p.id];
-              const sameRun =
-                existing && (existing.runId || existing.createdAt) === (p.runId || p.createdAt);
+                if (
+                  existingByName.status === 'left' ||
+                  existingByName.status === 'disconnected' ||
+                  (!isLive &&
+                    (existingByName.status === 'active' || existingByName.status === 'briefing'))
+                ) {
+                  const hadStarted =
+                    Boolean(existingByName.startTime) ||
+                    (Number(existingByName.currentRoom) || 1) > 1 ||
+                    (Number(existingByName.completedRooms) || 0) > 0;
+                  const restoredStatus = hadStarted ? 'active' : 'briefing';
+                  const effectiveMins =
+                    restoredStatus === 'briefing'
+                      ? configuredMins
+                      : Number(existingByName.allocatedMinutes) || configuredMins;
+                  const pausedSec = Math.max(
+                    1,
+                    Number(
+                      existingByName.pausedRemainingSeconds ?? existingByName.remainingSeconds
+                    ) || effectiveMins * 60
+                  );
 
-              if (sameRun && (p.clientSeq || 0) < (existing.clientSeq || 0)) {
-                res.setHeader('Content-Type', 'application/json');
-                res.end(JSON.stringify(buildClientPayload(state, req, { playerId: p.id })));
-                return;
-              }
+                  const resumed = {
+                    ...existingByName,
+                    status: restoredStatus,
+                    isDisconnected: false,
+                    allocatedMinutes: effectiveMins,
+                    startTime: hadStarted ? existingByName.startTime || now : null,
+                    endTime: hadStarted ? now + pausedSec * 1000 : null,
+                    pausedRemainingSeconds: null,
+                    remainingSeconds:
+                      restoredStatus === 'briefing' ? effectiveMins * 60 : pausedSec,
+                    lastHeartbeat: now,
+                    lastUpdated: now,
+                    clientSeq: (Number(existingByName.clientSeq) || 0) + 1,
+                    lastEvent: 'Reconnected to Session',
+                  };
+                  delete state.removedIds?.[existingByName.id];
+                  state.players[existingByName.id] = resumed;
+                  targetPlayerId = existingByName.id;
+                  resumedPlayerId = existingByName.id;
+                } else {
+                  const restarted = {
+                    ...p,
+                    id: existingByName.id,
+                    runId: now,
+                    status: 'briefing',
+                    currentRoom: 1,
+                    completedRooms: 0,
+                    solvedRoomIds: [],
+                    score: 0,
+                    initialFreeHints: configuredFreeHints,
+                    freeHintsRemaining: configuredFreeHints,
+                    hintsUsed: 0,
+                    unlockedHintRooms: [],
+                    wrongAttempts: 0,
+                    skippedCount: 0,
+                    tabSwitches: 0,
+                    isTabAway: false,
+                    isDisconnected: false,
+                    allocatedMinutes: configuredMins,
+                    startTime: null,
+                    endTime: null,
+                    pausedRemainingSeconds: null,
+                    remainingSeconds: configuredMins * 60,
+                    completedAt: null,
+                    createdAt: now,
+                    lastHeartbeat: now,
+                    lastUpdated: now,
+                    clientSeq: (Number(existingByName.clientSeq) || 0) + 1,
+                    lastEvent: 'Started New Run (Briefing)',
+                  };
+                  delete state.removedIds?.[existingByName.id];
+                  state.players[existingByName.id] = restarted;
+                  targetPlayerId = existingByName.id;
+                  resumedPlayerId = existingByName.id;
+                }
+              } else {
+                delete state.removedIds[p.id];
+                const existing = state.players[p.id];
+                let nextPlayer = mergePlayerOnServer(existing, p, now);
 
-              const configuredMins = Number(state.settings?.globalDurationMinutes) || 60;
-              let nextPlayer = { ...p };
-
-              if (sameRun) {
-                const solvedRoomIds = Array.from(
-                  new Set([...(existing.solvedRoomIds || []), ...(p.solvedRoomIds || [])])
-                );
-                const unlockedHintRooms = Array.from(
-                  new Set([...(existing.unlockedHintRooms || []), ...(p.unlockedHintRooms || [])])
-                );
-                const mergedStartTime = p.startTime || existing.startTime || null;
-                let mergedStatus = p.status;
-                if (mergedStartTime && mergedStatus === 'briefing') {
-                  mergedStatus = existing.status === 'briefing' ? 'active' : existing.status;
+                if (nextPlayer.status === 'briefing' && !nextPlayer.startTime) {
+                  nextPlayer.allocatedMinutes = configuredMins;
+                  nextPlayer.remainingSeconds = configuredMins * 60;
+                  nextPlayer.initialFreeHints = configuredFreeHints;
+                  nextPlayer.freeHintsRemaining = configuredFreeHints;
+                } else if (
+                  nextPlayer.status === 'active' &&
+                  (!existing || existing.status === 'briefing') &&
+                  !action.isRejoin
+                ) {
+                  nextPlayer.allocatedMinutes = configuredMins;
+                  const startTs = nextPlayer.startTime || now;
+                  nextPlayer.startTime = startTs;
+                  nextPlayer.endTime = startTs + configuredMins * 60 * 1000;
+                  nextPlayer.remainingSeconds = configuredMins * 60;
+                  nextPlayer.initialFreeHints = configuredFreeHints;
+                  if (existing?.status === 'briefing') {
+                    nextPlayer.freeHintsRemaining = configuredFreeHints;
+                  }
                 }
 
-                nextPlayer = {
-                  ...existing,
-                  ...p,
-                  status: mergedStatus,
-                  startTime: mergedStartTime,
-                  currentRoom: Math.max(
-                    Number(existing.currentRoom) || 1,
-                    Number(p.currentRoom) || 1
-                  ),
-                  completedRooms: Math.max(
-                    solvedRoomIds.length,
-                    Number(existing.completedRooms) || 0,
-                    Number(p.completedRooms) || 0
-                  ),
-                  solvedRoomIds,
-                  hintsUsed: Math.max(Number(existing.hintsUsed) || 0, Number(p.hintsUsed) || 0),
-                  wrongAttempts: Math.max(
-                    Number(existing.wrongAttempts) || 0,
-                    Number(p.wrongAttempts) || 0
-                  ),
-                  skippedCount: Math.max(
-                    Number(existing.skippedCount) || 0,
-                    Number(p.skippedCount) || 0
-                  ),
-                  tabSwitches: Math.max(
-                    Number(existing.tabSwitches) || 0,
-                    Number(p.tabSwitches) || 0
-                  ),
-                  unlockedHintRooms,
-                  clientSeq: Math.max(Number(existing.clientSeq) || 0, Number(p.clientSeq) || 0),
+                state.players[p.id] = {
+                  ...nextPlayer,
+                  lastHeartbeat: now,
+                  lastUpdated: Math.max(now, Number(p.lastUpdated) || 0),
                 };
               }
-
-              if (nextPlayer.status === 'briefing') {
-                nextPlayer.allocatedMinutes = configuredMins;
-                nextPlayer.remainingSeconds = configuredMins * 60;
-              } else if (
-                nextPlayer.status === 'active' &&
-                (!existing || existing.status === 'briefing') &&
-                !action.isRejoin
-              ) {
-                nextPlayer.allocatedMinutes = configuredMins;
-                const startTs = nextPlayer.startTime || now;
-                nextPlayer.startTime = startTs;
-                nextPlayer.endTime = startTs + configuredMins * 60 * 1000;
-                nextPlayer.remainingSeconds = configuredMins * 60;
-              }
-
-              state.players[p.id] = {
-                ...nextPlayer,
-                lastHeartbeat: now,
-                lastUpdated: p.lastUpdated || now,
-              };
             } else if (action.type === 'HEARTBEAT_PLAYER' && action.playerId) {
               if (!state.removedIds?.[action.playerId]) {
                 const cur = state.players[action.playerId];
@@ -464,19 +630,26 @@ function escapeStateApiPlugin() {
             } else if (action.type === 'PLAYER_DISCONNECT' && action.playerId) {
               const cur = state.players[action.playerId];
               if (cur && (cur.status === 'active' || cur.status === 'briefing')) {
-                const fallbackMins = state.settings?.globalDurationMinutes || 60;
-                const rem = cur.endTime
-                  ? Math.max(0, Math.ceil((cur.endTime - now) / 1000))
-                  : cur.remainingSeconds || fallbackMins * 60;
-                state.players[action.playerId] = {
-                  ...cur,
-                  status: action.reason === 'left' ? 'left' : 'disconnected',
-                  isDisconnected: true,
-                  pausedRemainingSeconds: rem,
-                  remainingSeconds: rem,
-                  lastUpdated: now,
-                  lastEvent: action.reason === 'left' ? 'Exited Game' : 'Closed Tab / Disconnected',
-                };
+                if (action.reason === 'left' && cur.status === 'briefing' && !cur.startTime) {
+                  delete state.players[action.playerId];
+                } else {
+                  const fallbackMins = state.settings?.globalDurationMinutes || 60;
+                  const rem = cur.endTime
+                    ? Math.max(0, Math.ceil((cur.endTime - now) / 1000))
+                    : cur.remainingSeconds || fallbackMins * 60;
+                  state.players[action.playerId] = {
+                    ...cur,
+                    status: action.reason === 'left' ? 'left' : 'disconnected',
+                    isDisconnected: true,
+                    pausedRemainingSeconds: rem,
+                    remainingSeconds: rem,
+                    lastUpdated: now,
+                    lastEvent:
+                      action.reason === 'left'
+                        ? 'Exited Game (Paused)'
+                        : 'Closed Tab / Disconnected',
+                  };
+                }
               }
             } else if (action.type === 'REMOVE_PLAYER' && action.playerId) {
               delete state.players[action.playerId];
@@ -612,7 +785,8 @@ function escapeStateApiPlugin() {
             res.end(
               JSON.stringify(
                 buildClientPayload(state, req, {
-                  playerId: action.player?.id || action.playerId,
+                  playerId: targetPlayerId,
+                  ...(resumedPlayerId ? { resumedPlayerId } : {}),
                 })
               )
             );

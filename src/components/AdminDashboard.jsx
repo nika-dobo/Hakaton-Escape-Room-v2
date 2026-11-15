@@ -666,19 +666,19 @@ export default function AdminDashboard({
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full border-collapse text-left text-xs">
+            <table className="w-full lg:table-fixed border-collapse text-left text-xs">
               <thead>
                 <tr className="border-b border-cyber-border bg-cyber-bg/70 font-mono text-[11px] uppercase tracking-wider text-cyber-muted">
-                  <th className="px-2 py-2.5">Rank</th>
-                  <th className="px-2 py-2.5">Player</th>
-                  <th className="px-2 py-2.5">Room</th>
-                  <th className="px-2 py-2.5">Time</th>
-                  <th className="px-2 py-2.5">Score</th>
-                  <th className="px-2 py-2.5">Hints</th>
-                  <th className="px-2 py-2.5">Skipped</th>
-                  <th className="px-2 py-2.5">Tabs</th>
-                  <th className="px-2 py-2.5">Status</th>
-                  <th className="px-2 py-2.5 text-right">Action</th>
+                  <th className="w-[5%] px-2 py-2.5">Rank</th>
+                  <th className="w-[16%] px-2 py-2.5">Player</th>
+                  <th className="w-[11%] px-2 py-2.5">Room</th>
+                  <th className="w-[8%] px-2 py-2.5">Time</th>
+                  <th className="w-[17%] px-2 py-2.5">Score</th>
+                  <th className="w-[9%] px-2 py-2.5">Hints</th>
+                  <th className="w-[7%] px-2 py-2.5">Skipped</th>
+                  <th className="w-[10%] px-2 py-2.5">Tabs</th>
+                  <th className="w-[11%] px-2 py-2.5">Status</th>
+                  <th className="w-[6%] px-2 py-2.5 text-right">Action</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-cyber-border/70">
