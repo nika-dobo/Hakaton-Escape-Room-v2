@@ -1,7 +1,9 @@
 import React, { useState } from 'react';
 import { Play, Code2, Layers, Cpu, Clock, Award, HelpCircle } from 'lucide-react';
 
-export default function EntryScreen({ onJoin, globalDurationMinutes }) {
+export default function EntryScreen({ onJoin, globalDurationMinutes, scoringSettings }) {
+  const pointsCorrect = scoringSettings?.pointsCorrect ?? 100;
+  const freeHintsCount = scoringSettings?.freeHintsCount ?? 3;
   const [nickname, setNickname] = useState('');
   const [error, setError] = useState('');
 
@@ -12,8 +14,12 @@ export default function EntryScreen({ onJoin, globalDurationMinutes }) {
       setError('Please enter a player name or callsign (at least 2 characters).');
       return;
     }
+    const result = onJoin(cleaned);
+    if (result && result.ok === false) {
+      setError(result.error || 'This player name is already taken. Please choose another.');
+      return;
+    }
     setError('');
-    onJoin(cleaned);
   };
 
   return (
@@ -121,14 +127,14 @@ export default function EntryScreen({ onJoin, globalDurationMinutes }) {
               <div className="rounded-xl border border-cyber-border bg-cyber-bg/80 p-3 text-center">
                 <Award className="mx-auto mb-1 h-4 w-4 text-cyber-emerald" aria-hidden="true" />
                 <div className="tabular-nums font-mono text-sm font-bold text-cyber-emerald">
-                  +100
+                  {pointsCorrect >= 0 ? `+${pointsCorrect}` : pointsCorrect}
                 </div>
                 <div className="text-[11px] text-cyber-muted">Per Room</div>
               </div>
               <div className="rounded-xl border border-cyber-border bg-cyber-bg/80 p-3 text-center">
                 <HelpCircle className="mx-auto mb-1 h-4 w-4 text-cyber-amber" aria-hidden="true" />
                 <div className="tabular-nums font-mono text-sm font-bold text-cyber-amber">
-                  3 Free
+                  {freeHintsCount} Free
                 </div>
                 <div className="text-[11px] text-cyber-muted">Hints Total</div>
               </div>

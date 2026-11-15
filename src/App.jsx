@@ -10,14 +10,21 @@ import {
   getStoreSnapshot,
   getStoredPlayerId,
   setStoredPlayerId,
+  getScoringSettings,
   isAdminAuthenticated,
   setAdminAuthenticated,
   registerPlayer,
   startPlayerGame,
   submitPlayerAnswer,
   requestRoomHint,
+  skipPlayerRoom,
+  reportPlayerFocusChange,
+  sendPlayerHeartbeat,
+  markPlayerDisconnected,
   markPlayerTimeout,
   updateGlobalTimerSettings,
+  updateScoringSettings,
+  adjustPlayerScore,
   removePlayerSession,
   resetAllSessions,
   seedDemoPlayers,
@@ -44,6 +51,34 @@ export default function App() {
 
   const currentPlayer = activePlayerId ? storeState.players[activePlayerId] || null : null;
 
+  // Send heartbeat & detect tab/browser close for live Admin status
+  useEffect(() => {
+    if (!currentPlayer) return undefined;
+    const isRunning =
+      currentPlayer.status === 'active' ||
+      currentPlayer.status === 'briefing' ||
+      currentPlayer.status === 'disconnected';
+    if (!isRunning) return undefined;
+
+    sendPlayerHeartbeat(currentPlayer.id);
+    const hbId = window.setInterval(() => {
+      sendPlayerHeartbeat(currentPlayer.id);
+    }, 5000);
+
+    const handleUnload = () => {
+      markPlayerDisconnected(currentPlayer.id, 'closed');
+    };
+
+    window.addEventListener('pagehide', handleUnload);
+    window.addEventListener('beforeunload', handleUnload);
+
+    return () => {
+      window.clearInterval(hbId);
+      window.removeEventListener('pagehide', handleUnload);
+      window.removeEventListener('beforeunload', handleUnload);
+    };
+  }, [currentPlayer?.id, currentPlayer?.status]);
+
   // Clear local session pointer if admin wiped/removed this player
   useEffect(() => {
     if (activePlayerId && !storeState.players[activePlayerId]) {
@@ -66,11 +101,20 @@ export default function App() {
   };
 
   const handleJoin = (name) => {
-    const player = registerPlayer(name);
-    setActivePlayerId(player.id);
+    const result = registerPlayer(name);
+    if (result?.ok && result.player) {
+      setActivePlayerId(result.player.id);
+    }
+    return result;
   };
 
   const handleLeaveSession = () => {
+    if (
+      currentPlayer &&
+      (currentPlayer.status === 'active' || currentPlayer.status === 'briefing')
+    ) {
+      markPlayerDisconnected(currentPlayer.id, 'left');
+    }
     setStoredPlayerId(null);
     setActivePlayerId(null);
   };
@@ -88,6 +132,7 @@ export default function App() {
   const allPlayers = Object.values(storeState.players || {});
   const activeCount = allPlayers.filter((p) => p.status === 'active').length;
   const globalMinutes = storeState.settings?.globalDurationMinutes || 60;
+  const scoringSettings = getScoringSettings(storeState);
 
   return (
     <div className="flex min-h-screen flex-col">
@@ -103,7 +148,6 @@ export default function App() {
         {activeView === 'admin' ? (
           !adminAuthed ? (
             <AdminAuthGate
-              currentPasswordHash={storeState.settings?.adminPasswordHash}
               onAuthenticated={handleAdminAuthenticated}
               onBackToPlayer={() => handleSelectView('player')}
             />
@@ -111,6 +155,8 @@ export default function App() {
             <AdminDashboard
               storeState={storeState}
               onUpdateTimer={updateGlobalTimerSettings}
+              onUpdateScoring={updateScoringSettings}
+              onAdjustScore={adjustPlayerScore}
               onResetAll={resetAllSessions}
               onRemovePlayer={removePlayerSession}
               onSeedDemo={seedDemoPlayers}
@@ -121,19 +167,24 @@ export default function App() {
           <EntryScreen
             onJoin={handleJoin}
             globalDurationMinutes={globalMinutes}
+            scoringSettings={scoringSettings}
           />
         ) : currentPlayer.status === 'briefing' ? (
           <BriefingModal
             playerName={currentPlayer.name}
             allocatedMinutes={currentPlayer.allocatedMinutes || globalMinutes}
+            scoringSettings={scoringSettings}
             onStartGame={() => startPlayerGame(currentPlayer.id)}
             onLeaveSession={handleLeaveSession}
           />
         ) : (
           <GameArena
             player={currentPlayer}
+            scoringSettings={scoringSettings}
             onSubmitAnswer={submitPlayerAnswer}
             onUseHint={requestRoomHint}
+            onSkipRoom={skipPlayerRoom}
+            onTabFocusChange={reportPlayerFocusChange}
             onTimeout={markPlayerTimeout}
             onLeaveSession={handleLeaveSession}
             onOpenAdminView={() => handleSelectView('admin')}

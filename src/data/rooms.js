@@ -37,13 +37,14 @@ export const ROOMS = [
     id: 3,
     category: 'HTML',
     question:
-      'Room 03 [Easy]: Enter the exact attribute value that forces an anchor link to open in a new browser tab or window.',
-    codeSnippet: `<a href="https://developer.mozilla.org" target="???">
-  Open Documentation
-</a>`,
-    answer: '_blank',
-    acceptedAnswers: ['_blank'],
-    hint: 'Target keywords start with an underscore. Think of opening a fresh, blank tab.',
+      'Room 03 [Easy]: Complete the markup with the HTML tag that renders a numbered (ordered) list of items.',
+    codeSnippet: `<???>
+  <li>Initialize Server</li>
+  <li>Connect Database</li>
+</???>`,
+    answer: '<ol>',
+    acceptedAnswers: ['<ol>', 'ol'],
+    hint: 'Stands for "Ordered List" (as opposed to <ul> for an unordered bulleted list).',
   },
   {
     id: 4,
@@ -73,47 +74,43 @@ export const ROOMS = [
     id: 6,
     category: 'HTML',
     question:
-      'Room 06 [Medium]: Enter the table cell attribute needed so the summary footer cell stretches horizontally across 3 columns.',
-    codeSnippet: `<table>
-  <thead>
-    <tr><th>Node</th><th>Latency</th><th>Status</th></tr>
-  </thead>
-  <tfoot>
-    <tr><td ???="3">All Nodes Operational</td></tr>
-  </tfoot>
-</table>`,
-    answer: 'colspan',
-    acceptedAnswers: ['colspan'],
-    hint: 'Combine "col" (column) and "span" into one lowercase HTML attribute.',
+      'Room 06 [Medium]: Enter the semantic HTML5 tag name used inside a <details> element to define its clickable toggle heading.',
+    codeSnippet: `<details>
+  <???>View Decryption Logs</???>
+  <p>Packet verified at 00:42 UTC.</p>
+</details>`,
+    answer: 'summary',
+    acceptedAnswers: ['summary', '<summary>'],
+    hint: 'Without this tag, <details> displays a generic "Details" toggle label.',
   },
   {
     id: 7,
     category: 'HTML',
     question:
-      'Room 07 [Medium]: Enter the semantic HTML5 tag name used inside a <figure> element to provide its caption.',
-    codeSnippet: `<figure>
-  <img src="trace.svg" alt="Memory graph" />
-  <???>Figure 2.1 — Heap allocation spike</???>
-</figure>`,
-    answer: 'figcaption',
-    acceptedAnswers: ['figcaption', '<figcaption>'],
-    hint: 'It combines the abbreviations for "figure" and "caption" into a single tag.',
+      'Room 07 [Medium]: Which boolean attribute prevents users from editing an <input> value while STILL submitting its value with the form?',
+    codeSnippet: `<form>
+  <input type="text" name="sessionId" value="SESS-901" ??? />
+  <button type="submit">Save</button>
+</form>`,
+    answer: 'readonly',
+    acceptedAnswers: ['readonly'],
+    hint: 'Unlike "disabled" (which omits the field from form submission), this attribute locks editing while still sending the value.',
   },
   {
     id: 8,
     category: 'HTML',
     question:
-      'Room 08 [Medium]: Which native <input> attribute validates the user value against a regular expression before form submission?',
-    codeSnippet: `<input
-  type="text"
-  name="badgeCode"
-  ???="[A-Z]{3}-[0-9]{4}"
-  title="Format: ABC-1234"
-  required
-/>`,
-    answer: 'pattern',
-    acceptedAnswers: ['pattern'],
-    hint: 'In HTML constraint validation, regex rules are passed to an attribute named after a matching design or template.',
+      'Room 08 [Medium]: Accessibility — Which HTML attribute on a <th> element explicitly declares whether it is a header for a column ("col") or row ("row")?',
+    codeSnippet: `<table>
+  <tr>
+    <th ???="col">Node</th>
+    <th ???="col">Ping</th>
+  </tr>
+  <tr><td>Alpha</td><td>12ms</td></tr>
+</table>`,
+    answer: 'scope',
+    acceptedAnswers: ['scope'],
+    hint: 'A 5-letter attribute that defines the header cell’s "scope" (col, row, colgroup, or rowgroup).',
   },
   {
     id: 9,
@@ -151,27 +148,30 @@ export const ROOMS = [
     id: 11,
     category: 'HTML',
     question:
-      'Room 11 [Hard]: DOM Dataset Mapping — What exact camelCase property name on el.dataset reads the "admin" value below?',
-    codeSnippet: `<div id="vault" data-access-level="admin"></div>
-<script>
-  const el = document.getElementById('vault');
-  console.log(el.dataset.???); // "admin"
-</script>`,
-    answer: 'accessLevel',
-    acceptedAnswers: ['accessLevel'],
-    hint: 'The "data-" prefix is stripped and kebab-case hyphens convert to camelCase.',
+      'Room 11 [Hard]: Which attribute on <input type="number"> restricts valid numeric entries to increments of 5 (0, 5, 10, ...)?',
+    codeSnippet: `<input
+  type="number"
+  min="0"
+  max="100"
+  ???="5"
+/>`,
+    answer: 'step',
+    acceptedAnswers: ['step'],
+    hint: 'A 4-letter attribute defining the interval "step" between allowed numeric values.',
   },
   {
     id: 12,
     category: 'HTML',
     question:
-      'Room 12 [Hard]: Accessibility — Which aria-live attribute value announces dynamic status updates to screen readers only when the user is idle (non-interruptive)?',
-    codeSnippet: `<div role="status" aria-live="???">
-  Room 12 decrypted: +100 points
-</div>`,
-    answer: 'polite',
-    acceptedAnswers: ['polite'],
-    hint: 'The three valid values are "off", "assertive", and a courteous word meaning non-intrusive.',
+      'Room 12 [Hard]: Performance — Which loading attribute value defers fetching an off-screen <img> until the user scrolls near it?',
+    codeSnippet: `<img
+  src="/assets/heavy-map.webp"
+  alt="Sector Map"
+  loading="???"
+/>`,
+    answer: 'lazy',
+    acceptedAnswers: ['lazy'],
+    hint: 'The opposite of "eager" loading.',
   },
   {
     id: 13,
@@ -194,14 +194,19 @@ export const ROOMS = [
     id: 14,
     category: 'HTML',
     question:
-      'Room 14 [Hard]: Which boolean attribute on a <script> tag downloads the file in parallel and guarantees execution in document order only after HTML parsing finishes?',
+      'Room 14 [Hard]: Resource Preloading — When using <link rel="preload">, which mandatory 2-letter attribute tells the browser the asset type (e.g., "font", "style", or "script")?',
     codeSnippet: `<head>
-  <script src="/vendor.js" ???></script>
-  <script src="/app.js" ???></script>
+  <link
+    rel="preload"
+    href="/fonts/mono.woff2"
+    ???="font"
+    type="font/woff2"
+    crossorigin
+  />
 </head>`,
-    answer: 'defer',
-    acceptedAnswers: ['defer'],
-    hint: 'Unlike "async" (which executes immediately upon download out of order), this 5-letter attribute postpones execution until parsing completes.',
+    answer: 'as',
+    acceptedAnswers: ['as'],
+    hint: 'It specifies what the browser should treat the preloaded resource "as".',
   },
   {
     id: 15,
@@ -287,12 +292,12 @@ export const ROOMS = [
     category: 'CSS',
     question:
       'Room 20 [Medium]: Specificity Calculation — Calculate the CSS specificity of this selector in the format ID,Class,Element (example: 0,2,1).',
-    codeSnippet: `#app .card ul > li.active a:hover {
-  color: #00f0ff;
+    codeSnippet: `nav#top-bar .menu-item[data-active="true"] > a::after {
+  content: "";
 }`,
-    answer: '1,3,3',
-    acceptedAnswers: ['1,3,3', '(1,3,3)', '1-3-3', '1 3 3'],
-    hint: 'Count: #app = 1 ID. (.card, .active, :hover) = 3 class/pseudo-class selectors. (ul, li, a) = 3 type selectors. Combinator > adds 0.',
+    answer: '1,2,3',
+    acceptedAnswers: ['1,2,3', '(1,2,3)', '1-2-3', '1 2 3'],
+    hint: 'IDs: #top-bar (1). Classes/Attributes: .menu-item, [data-active="true"] (2). Elements/Pseudo-elements: nav, a, ::after (3). Combinator > adds 0.',
   },
   {
     id: 21,
@@ -461,13 +466,13 @@ header nav ul li a.nav-link.active { color: lime; }`,
     id: 31,
     category: 'CSS',
     question:
-      'Room 31 [Hard]: Bug Fix — The calc() declaration below is silently ignored by browsers. Enter the full corrected calc(...) value so it parses validly.',
-    codeSnippet: `.workspace-pane {
-  width: calc(100%-280px);
+      'Room 31 [Hard]: Fluid Typography — Given a 1000px viewport width and root 1rem = 16px, what computed font-size in pixels does clamp() resolve to? (Include "px").',
+    codeSnippet: `.hero-title {
+  font-size: clamp(1rem, 5vw, 2.5rem);
 }`,
-    answer: 'calc(100% - 280px)',
-    acceptedAnswers: ['calc(100% - 280px)', 'width: calc(100% - 280px);', 'width: calc(100% - 280px)'],
-    hint: 'In CSS calc(), the + and - operators MUST be surrounded by whitespace on both sides.',
+    answer: '40px',
+    acceptedAnswers: ['40px', '40'],
+    hint: 'Convert all three values to px: min = 16px, preferred = 5% of 1000px (50px), max = 2.5 * 16px (40px).',
   },
   {
     id: 32,
@@ -607,18 +612,14 @@ inspect();`,
     id: 42,
     category: 'JavaScript',
     question:
-      'Room 42 [Medium]: Bug Fix — Extracting agent.getCode loses its "this" context. Enter the Function.prototype method name needed to permanently bind "this" to agent without invoking it immediately.',
-    codeSnippet: `const agent = {
-  code: 404,
-  getCode() {
-    return this.code;
-  },
-};
-const extract = agent.getCode.???(agent);
-console.log(extract()); // 404`,
-    answer: 'bind',
-    acceptedAnswers: ['bind'],
-    hint: 'Unlike .call() or .apply(), this 4-letter method returns a new bound function you can call later.',
+      'Room 42 [Medium]: Nullish Coalescing vs Logical OR — Enter the exact string logged to the console.',
+    codeSnippet: `const retries = 0;
+const a = retries || 3;
+const b = retries ?? 3;
+console.log(\`\${a}-\${b}\`);`,
+    answer: '3-0',
+    acceptedAnswers: ['3-0', '"3-0"', "'3-0'"],
+    hint: '|| falls back on any falsy value (including 0), whereas ?? only falls back on null or undefined.',
   },
   {
     id: 43,
@@ -682,15 +683,13 @@ Promise.all([p1, p2, p3])
     id: 47,
     category: 'JavaScript',
     question:
-      'Room 47 [Hard]: Destructuring Defaults — Enter the exact output string logged to the console.',
-    codeSnippet: `const { port = 8080, host = 'localhost' } = {
-  port: null,
-  host: undefined,
-};
-console.log(\`\${host}:\${port}\`);`,
-    answer: 'localhost:null',
-    acceptedAnswers: ['localhost:null', '"localhost:null"', "'localhost:null'"],
-    hint: 'Destructuring default values only trigger when a property is strictly undefined — null is treated as an explicit value.',
+      'Room 47 [Hard]: Set Deduplication — What final number is logged to the console?',
+    codeSnippet: `const codes = [4, 2, 4, 1, 2];
+const unique = [...new Set(codes)];
+console.log(unique.length + unique[1]);`,
+    answer: '5',
+    acceptedAnswers: ['5'],
+    hint: 'Set removes duplicates while preserving first-seen insertion order: [4, 2, 1]. Add its length to the element at index 1.',
   },
   {
     id: 48,

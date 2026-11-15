@@ -9,15 +9,33 @@ const CLOUD_URL_STORAGE_KEY = 'cipher50_cloud_db_url';
 export const POINTS_CORRECT = 100;
 export const POINTS_WRONG = -25;
 export const POINTS_PAID_HINT = -50;
+export const POINTS_SKIP = 0;
 export const INITIAL_FREE_HINTS = 3;
 export const DEFAULT_DURATION_MINUTES = 60;
 export const DEFAULT_ADMIN_PASSWORD = 'admin123';
+
+export function getScoringSettings(state = currentState) {
+  const s = state?.settings || {};
+  return {
+    pointsCorrect: s.pointsCorrect !== undefined ? Number(s.pointsCorrect) : POINTS_CORRECT,
+    pointsWrong: s.pointsWrong !== undefined ? Number(s.pointsWrong) : POINTS_WRONG,
+    pointsPaidHint: s.pointsPaidHint !== undefined ? Number(s.pointsPaidHint) : POINTS_PAID_HINT,
+    pointsSkip: s.pointsSkip !== undefined ? Number(s.pointsSkip) : POINTS_SKIP,
+    freeHintsCount:
+      s.freeHintsCount !== undefined ? Math.max(0, Number(s.freeHintsCount)) : INITIAL_FREE_HINTS,
+  };
+}
 
 function createDefaultState() {
   return {
     players: {},
     settings: {
       globalDurationMinutes: DEFAULT_DURATION_MINUTES,
+      pointsCorrect: POINTS_CORRECT,
+      pointsWrong: POINTS_WRONG,
+      pointsPaidHint: POINTS_PAID_HINT,
+      pointsSkip: POINTS_SKIP,
+      freeHintsCount: INITIAL_FREE_HINTS,
       adminPasswordHash: DEFAULT_ADMIN_PASSWORD,
       updatedAt: 0,
     },
@@ -33,13 +51,20 @@ function loadLocalState() {
     if (!raw) return createDefaultState();
     const parsed = JSON.parse(raw);
     if (!parsed || typeof parsed !== 'object') return createDefaultState();
+    const s = parsed.settings || {};
     return {
       players: parsed.players && typeof parsed.players === 'object' ? parsed.players : {},
       settings: {
         globalDurationMinutes:
-          Number(parsed.settings?.globalDurationMinutes) || DEFAULT_DURATION_MINUTES,
-        adminPasswordHash: parsed.settings?.adminPasswordHash || DEFAULT_ADMIN_PASSWORD,
-        updatedAt: Number(parsed.settings?.updatedAt) || 0,
+          Number(s.globalDurationMinutes) || DEFAULT_DURATION_MINUTES,
+        pointsCorrect: s.pointsCorrect !== undefined ? Number(s.pointsCorrect) : POINTS_CORRECT,
+        pointsWrong: s.pointsWrong !== undefined ? Number(s.pointsWrong) : POINTS_WRONG,
+        pointsPaidHint: s.pointsPaidHint !== undefined ? Number(s.pointsPaidHint) : POINTS_PAID_HINT,
+        pointsSkip: s.pointsSkip !== undefined ? Number(s.pointsSkip) : POINTS_SKIP,
+        freeHintsCount:
+          s.freeHintsCount !== undefined ? Number(s.freeHintsCount) : INITIAL_FREE_HINTS,
+        adminPasswordHash: s.adminPasswordHash || DEFAULT_ADMIN_PASSWORD,
+        updatedAt: Number(s.updatedAt) || 0,
       },
       lanUrls: Array.isArray(parsed.lanUrls) ? parsed.lanUrls : [],
       revision: Number(parsed.revision) || 1,
@@ -222,6 +247,26 @@ function mergeIncomingState(incoming) {
     nextSettings = {
       globalDurationMinutes:
         Number(incoming.settings.globalDurationMinutes) || DEFAULT_DURATION_MINUTES,
+      pointsCorrect:
+        incoming.settings.pointsCorrect !== undefined
+          ? Number(incoming.settings.pointsCorrect)
+          : currentState.settings?.pointsCorrect ?? POINTS_CORRECT,
+      pointsWrong:
+        incoming.settings.pointsWrong !== undefined
+          ? Number(incoming.settings.pointsWrong)
+          : currentState.settings?.pointsWrong ?? POINTS_WRONG,
+      pointsPaidHint:
+        incoming.settings.pointsPaidHint !== undefined
+          ? Number(incoming.settings.pointsPaidHint)
+          : currentState.settings?.pointsPaidHint ?? POINTS_PAID_HINT,
+      pointsSkip:
+        incoming.settings.pointsSkip !== undefined
+          ? Number(incoming.settings.pointsSkip)
+          : currentState.settings?.pointsSkip ?? POINTS_SKIP,
+      freeHintsCount:
+        incoming.settings.freeHintsCount !== undefined
+          ? Number(incoming.settings.freeHintsCount)
+          : currentState.settings?.freeHintsCount ?? INITIAL_FREE_HINTS,
       adminPasswordHash:
         incoming.settings.adminPasswordHash ||
         currentState.settings?.adminPasswordHash ||
@@ -481,12 +526,27 @@ export function formatSecondsMMSS(totalSeconds) {
   return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
 }
 
+export function isPlayerNameTaken(rawName) {
+  const normalized = String(rawName || '').trim().toLowerCase();
+  if (!normalized) return false;
+  return Object.values(currentState.players || {}).some(
+    (p) => String(p.name || '').trim().toLowerCase() === normalized
+  );
+}
+
 export function registerPlayer(rawName) {
   const name = rawName.trim().slice(0, 32);
+  if (isPlayerNameTaken(name)) {
+    return {
+      ok: false,
+      error: 'This player name is already taken. Please choose a different callsign.',
+    };
+  }
   const now = Date.now();
   const id = `plr_${now}_${Math.random().toString(36).slice(2, 7)}`;
   const allocatedMinutes =
     currentState.settings.globalDurationMinutes || DEFAULT_DURATION_MINUTES;
+  const scoring = getScoringSettings();
 
   const player = {
     id,
@@ -494,10 +554,14 @@ export function registerPlayer(rawName) {
     currentRoom: 1,
     completedRooms: 0,
     score: 0,
-    freeHintsRemaining: INITIAL_FREE_HINTS,
+    freeHintsRemaining: scoring.freeHintsCount,
     hintsUsed: 0,
     unlockedHintRooms: [],
     wrongAttempts: 0,
+    skippedCount: 0,
+    tabSwitches: 0,
+    isTabAway: false,
+    isDisconnected: false,
     status: 'briefing',
     allocatedMinutes,
     startTime: null,
@@ -505,12 +569,14 @@ export function registerPlayer(rawName) {
     remainingSeconds: allocatedMinutes * 60,
     completedAt: null,
     createdAt: now,
+    lastHeartbeat: now,
     lastUpdated: now,
     lastEvent: 'Joined (Briefing Room)',
   };
 
   setStoredPlayerId(id);
-  return commitPlayer(player);
+  commitPlayer(player);
+  return { ok: true, player };
 }
 
 export function startPlayerGame(playerId) {
@@ -545,34 +611,41 @@ export function submitPlayerAnswer(playerId, roomId, isCorrect) {
     return markPlayerTimeout(playerId);
   }
 
+  const scoring = getScoringSettings();
+
   if (isCorrect) {
     const isFinalRoom = roomId >= TOTAL_ROOMS;
     const nextCompleted = Math.min(TOTAL_ROOMS, Math.max(existing.completedRooms || 0, roomId));
     const nextRoom = isFinalRoom ? TOTAL_ROOMS : roomId + 1;
+    const delta = scoring.pointsCorrect;
+    const deltaLabel = delta >= 0 ? `+${delta}` : `${delta}`;
 
     const updated = {
       ...existing,
-      score: existing.score + POINTS_CORRECT,
+      score: existing.score + delta,
       completedRooms: nextCompleted,
       currentRoom: nextRoom,
       status: isFinalRoom ? 'completed' : 'active',
       remainingSeconds: remaining,
       completedAt: isFinalRoom ? now : null,
+      lastHeartbeat: now,
       lastUpdated: now,
       lastEvent: isFinalRoom
-        ? 'Escaped All 50 Rooms (+100)'
-        : `Cleared Room ${roomId} (+100)`,
+        ? `Escaped All 50 Rooms (${deltaLabel})`
+        : `Cleared Room ${roomId} (${deltaLabel})`,
     };
     return commitPlayer(updated);
   }
 
+  const wrongDelta = scoring.pointsWrong;
   const updated = {
     ...existing,
-    score: existing.score + POINTS_WRONG,
+    score: existing.score + wrongDelta,
     wrongAttempts: (existing.wrongAttempts || 0) + 1,
     remainingSeconds: remaining,
+    lastHeartbeat: now,
     lastUpdated: now,
-    lastEvent: `Wrong Answer Room ${roomId} (-25)`,
+    lastEvent: `Wrong Answer Room ${roomId} (${wrongDelta})`,
   };
   return commitPlayer(updated);
 }
@@ -592,18 +665,228 @@ export function requestRoomHint(playerId, roomId) {
     return markPlayerTimeout(playerId);
   }
 
+  const scoring = getScoringSettings();
   const hasFreeHint = existing.freeHintsRemaining > 0;
+  const hintDelta = scoring.pointsPaidHint;
   const updated = {
     ...existing,
     freeHintsRemaining: hasFreeHint ? existing.freeHintsRemaining - 1 : 0,
     hintsUsed: (existing.hintsUsed || 0) + 1,
-    score: hasFreeHint ? existing.score : existing.score + POINTS_PAID_HINT,
+    score: hasFreeHint ? existing.score : existing.score + hintDelta,
     unlockedHintRooms: [...unlocked, roomId],
     remainingSeconds: remaining,
+    lastHeartbeat: now,
     lastUpdated: now,
     lastEvent: hasFreeHint
       ? `Used Free Hint Room ${roomId}`
-      : `Used Paid Hint Room ${roomId} (-50)`,
+      : `Used Paid Hint Room ${roomId} (${hintDelta})`,
+  };
+
+  return commitPlayer(updated);
+}
+
+export function skipPlayerRoom(playerId, roomId) {
+  const existing = currentState.players[playerId];
+  if (!existing || existing.status !== 'active') return null;
+
+  const now = Date.now();
+  const remaining = computeRemainingSeconds(existing, now, existing.allocatedMinutes);
+  if (remaining <= 0) {
+    return markPlayerTimeout(playerId);
+  }
+
+  const scoring = getScoringSettings();
+  const skipDelta = scoring.pointsSkip;
+  const skipLabel = skipDelta > 0 ? `+${skipDelta}` : `${skipDelta}`;
+  const isFinalRoom = roomId >= TOTAL_ROOMS;
+  const nextRoom = isFinalRoom ? TOTAL_ROOMS : roomId + 1;
+
+  const updated = {
+    ...existing,
+    score: existing.score + skipDelta,
+    currentRoom: nextRoom,
+    skippedCount: (existing.skippedCount || 0) + 1,
+    status: isFinalRoom ? 'completed' : 'active',
+    remainingSeconds: remaining,
+    completedAt: isFinalRoom ? now : null,
+    lastHeartbeat: now,
+    lastUpdated: now,
+    lastEvent: isFinalRoom
+      ? `Skipped Final Room 50 (${skipLabel} pts)`
+      : `Skipped Room ${roomId} (${skipLabel} pts)`,
+  };
+
+  return commitPlayer(updated);
+}
+
+export function reportPlayerFocusChange(playerId, isAway) {
+  const existing = currentState.players[playerId];
+  if (!existing || existing.status !== 'active') return null;
+
+  const away = Boolean(isAway);
+  if (Boolean(existing.isTabAway) === away) {
+    return existing;
+  }
+
+  const now = Date.now();
+  const nextSwitches = away
+    ? (existing.tabSwitches || 0) + 1
+    : existing.tabSwitches || 0;
+
+  const updated = {
+    ...existing,
+    isTabAway: away,
+    tabSwitches: nextSwitches,
+    lastUpdated: now,
+    lastEvent: away
+      ? `Left Tab / Window (#${nextSwitches})`
+      : 'Returned to Game Tab',
+  };
+
+  return commitPlayer(updated);
+}
+
+export function sendPlayerHeartbeat(playerId) {
+  const existing = currentState.players[playerId];
+  if (!existing) return;
+  if (existing.status !== 'active' && existing.status !== 'briefing' && existing.status !== 'disconnected') {
+    return;
+  }
+
+  const now = Date.now();
+  if (existing.status === 'disconnected') {
+    commitPlayer({
+      ...existing,
+      status: existing.startTime ? 'active' : 'briefing',
+      isDisconnected: false,
+      lastHeartbeat: now,
+      lastUpdated: now,
+      lastEvent: 'Reconnected to Session',
+    });
+    return;
+  }
+
+  // Keep local heartbeat fresh & ping server lightweight endpoint
+  currentState = {
+    ...currentState,
+    players: {
+      ...currentState.players,
+      [playerId]: {
+        ...existing,
+        isDisconnected: false,
+        lastHeartbeat: now,
+      },
+    },
+  };
+  postServerAction({ type: 'HEARTBEAT_PLAYER', playerId });
+}
+
+export function markPlayerDisconnected(playerId, reason = 'closed') {
+  const existing = currentState.players[playerId];
+  if (!existing || (existing.status !== 'active' && existing.status !== 'briefing')) {
+    return;
+  }
+
+  const now = Date.now();
+  const nextStatus = reason === 'left' ? 'left' : 'disconnected';
+  const eventLabel = reason === 'left' ? 'Exited Game' : 'Closed Tab / Disconnected';
+
+  const updated = {
+    ...existing,
+    status: nextStatus,
+    isDisconnected: true,
+    lastUpdated: now,
+    lastEvent: eventLabel,
+  };
+
+  const nextState = {
+    ...currentState,
+    players: {
+      ...currentState.players,
+      [playerId]: updated,
+    },
+    revision: currentState.revision + 1,
+  };
+
+  currentState = nextState;
+  saveLocalState(nextState);
+  broadcastLocal(nextState);
+  emitChange();
+
+  const payload = JSON.stringify({ type: 'PLAYER_DISCONNECT', playerId, reason });
+  if (reason === 'closed' && typeof navigator !== 'undefined' && navigator.sendBeacon) {
+    try {
+      const blob = new Blob([payload], { type: 'application/json' });
+      navigator.sendBeacon('/api/state', blob);
+    } catch {
+      postServerAction({ type: 'PLAYER_DISCONNECT', playerId, reason });
+    }
+  } else {
+    postServerAction({ type: 'PLAYER_DISCONNECT', playerId, reason });
+  }
+  pushPlayerToCloudDb(updated);
+}
+
+export function updateScoringSettings(newScoring) {
+  const now = Date.now();
+  const currentScoring = getScoringSettings();
+  const nextSettings = {
+    ...currentState.settings,
+    pointsCorrect:
+      newScoring.pointsCorrect !== undefined
+        ? Number(newScoring.pointsCorrect)
+        : currentScoring.pointsCorrect,
+    pointsWrong:
+      newScoring.pointsWrong !== undefined
+        ? Number(newScoring.pointsWrong)
+        : currentScoring.pointsWrong,
+    pointsPaidHint:
+      newScoring.pointsPaidHint !== undefined
+        ? Number(newScoring.pointsPaidHint)
+        : currentScoring.pointsPaidHint,
+    pointsSkip:
+      newScoring.pointsSkip !== undefined
+        ? Number(newScoring.pointsSkip)
+        : currentScoring.pointsSkip,
+    freeHintsCount:
+      newScoring.freeHintsCount !== undefined
+        ? Math.max(0, Math.min(50, Math.round(Number(newScoring.freeHintsCount))))
+        : currentScoring.freeHintsCount,
+    updatedAt: now,
+  };
+
+  const nextState = {
+    ...currentState,
+    settings: nextSettings,
+    revision: currentState.revision + 1,
+  };
+
+  currentState = nextState;
+  saveLocalState(nextState);
+  broadcastLocal(nextState);
+  emitChange();
+  postServerAction({
+    type: 'UPDATE_SETTINGS',
+    settings: nextSettings,
+    applyToActive: false,
+  });
+  pushFullStateToCloudDb(nextState);
+}
+
+export function adjustPlayerScore(playerId, delta) {
+  const existing = currentState.players[playerId];
+  const numericDelta = Math.round(Number(delta));
+  if (!existing || !Number.isFinite(numericDelta) || numericDelta === 0) {
+    return existing || null;
+  }
+
+  const now = Date.now();
+  const label = numericDelta > 0 ? `+${numericDelta}` : `${numericDelta}`;
+  const updated = {
+    ...existing,
+    score: (Number(existing.score) || 0) + numericDelta,
+    lastUpdated: now,
+    lastEvent: `Admin Adjusted Score (${label} pts)`,
   };
 
   return commitPlayer(updated);
@@ -751,6 +1034,9 @@ export function seedDemoPlayers() {
       hintsUsed: 2,
       unlockedHintRooms: [29, 44],
       wrongAttempts: 3,
+      skippedCount: 0,
+      tabSwitches: 0,
+      isTabAway: false,
       status: 'completed',
       allocatedMinutes: mins,
       startTime: now - 38 * 60 * 1000,
@@ -771,6 +1057,9 @@ export function seedDemoPlayers() {
       hintsUsed: 4,
       unlockedHintRooms: [15, 24, 29, 34],
       wrongAttempts: 3,
+      skippedCount: 1,
+      tabSwitches: 2,
+      isTabAway: false,
       status: 'active',
       allocatedMinutes: mins,
       startTime: now - 21 * 60 * 1000,
@@ -791,6 +1080,9 @@ export function seedDemoPlayers() {
       hintsUsed: 1,
       unlockedHintRooms: [20],
       wrongAttempts: 2,
+      skippedCount: 0,
+      tabSwitches: 0,
+      isTabAway: false,
       status: 'active',
       allocatedMinutes: mins,
       startTime: now - 14 * 60 * 1000,
@@ -811,6 +1103,9 @@ export function seedDemoPlayers() {
       hintsUsed: 3,
       unlockedHintRooms: [6, 9, 11],
       wrongAttempts: 5,
+      skippedCount: 3,
+      tabSwitches: 4,
+      isTabAway: false,
       status: 'timeout',
       allocatedMinutes: mins,
       startTime: now - totalMs,
@@ -847,7 +1142,16 @@ export function getSortedPlayers(state, now = Date.now()) {
   return players
     .map((p) => {
       const liveRemaining = computeRemainingSeconds(p, now, fallbackMins);
-      const effectiveStatus = p.status === 'active' && liveRemaining === 0 ? 'timeout' : p.status;
+      let effectiveStatus = p.status === 'active' && liveRemaining === 0 ? 'timeout' : p.status;
+      const isDemo = String(p.id || '').startsWith('demo_');
+      const lastSeen = p.lastHeartbeat || p.lastUpdated || now;
+      if (
+        !isDemo &&
+        (effectiveStatus === 'active' || effectiveStatus === 'briefing') &&
+        now - lastSeen > 18000
+      ) {
+        effectiveStatus = 'disconnected';
+      }
       return {
         ...p,
         liveRemainingSeconds: liveRemaining,

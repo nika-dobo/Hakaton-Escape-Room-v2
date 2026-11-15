@@ -1,15 +1,12 @@
 import React, { useState } from 'react';
 import { Lock, KeyRound, Eye, EyeOff, ArrowLeft, ShieldAlert } from 'lucide-react';
-import { verifyAdminPassword, DEFAULT_ADMIN_PASSWORD } from '../services/realtimeStore';
+import { verifyAdminPassword } from '../services/realtimeStore';
 
-export default function AdminAuthGate({ onAuthenticated, onBackToPlayer, currentPasswordHash }) {
+export default function AdminAuthGate({ onAuthenticated, onBackToPlayer }) {
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [shake, setShake] = useState(false);
-
-  const isDefaultPassword =
-    !currentPasswordHash || currentPasswordHash === DEFAULT_ADMIN_PASSWORD;
 
   const handleSubmit = (e) => {
     e.preventDefault();
@@ -106,15 +103,6 @@ export default function AdminAuthGate({ onAuthenticated, onBackToPlayer, current
               </p>
             ) : null}
           </div>
-
-          {isDefaultPassword ? (
-            <div className="rounded-xl border border-cyber-border bg-cyber-bg/70 px-3.5 py-2.5 text-xs text-cyber-muted">
-              Default Admin Password:{' '}
-              <code className="rounded bg-cyber-surfaceElevated px-1.5 py-0.5 font-mono font-bold text-cyber-cyan">
-                {DEFAULT_ADMIN_PASSWORD}
-              </code>
-            </div>
-          ) : null}
 
           <div className="flex flex-col gap-2.5 pt-1">
             <button

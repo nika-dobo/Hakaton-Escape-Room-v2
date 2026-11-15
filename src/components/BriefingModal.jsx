@@ -20,9 +20,14 @@ import {
 export default function BriefingModal({
   playerName,
   allocatedMinutes,
+  scoringSettings,
   onStartGame,
   onLeaveSession,
 }) {
+  const pointsCorrect = scoringSettings?.pointsCorrect ?? POINTS_CORRECT;
+  const pointsWrong = scoringSettings?.pointsWrong ?? POINTS_WRONG;
+  const pointsPaidHint = scoringSettings?.pointsPaidHint ?? POINTS_PAID_HINT;
+  const freeHintsCount = scoringSettings?.freeHintsCount ?? INITIAL_FREE_HINTS;
   return (
     <div
       className="mx-auto max-w-3xl px-4 py-8 sm:px-6 sm:py-12"
@@ -88,7 +93,7 @@ export default function BriefingModal({
                 <li className="flex items-center justify-between">
                   <span>Passing a room</span>
                   <span className="tabular-nums font-mono font-bold text-cyber-emerald">
-                    +{POINTS_CORRECT} pts
+                    {pointsCorrect >= 0 ? `+${pointsCorrect}` : pointsCorrect} pts
                   </span>
                 </li>
                 <li className="flex items-center justify-between">
@@ -97,7 +102,7 @@ export default function BriefingModal({
                     Every wrong submission
                   </span>
                   <span className="tabular-nums font-mono font-bold text-cyber-crimson">
-                    {POINTS_WRONG} pts
+                    {pointsWrong} pts
                   </span>
                 </li>
               </ul>
@@ -112,13 +117,13 @@ export default function BriefingModal({
                 <li className="flex items-center justify-between">
                   <span>Free hints (entire game)</span>
                   <span className="tabular-nums font-mono font-bold text-cyber-amber">
-                    {INITIAL_FREE_HINTS} Free
+                    {freeHintsCount} Free
                   </span>
                 </li>
                 <li className="flex items-center justify-between">
                   <span>Extra hints (max 1 per room)</span>
                   <span className="tabular-nums font-mono font-bold text-cyber-crimson">
-                    {POINTS_PAID_HINT} pts each
+                    {pointsPaidHint} pts each
                   </span>
                 </li>
               </ul>
@@ -126,7 +131,7 @@ export default function BriefingModal({
           </div>
 
           <div className="rounded-xl border border-cyber-cyan/20 bg-cyber-cyan/5 px-4 py-3 text-xs leading-relaxed text-cyber-muted">
-            Tip: Wrong answers deduct <strong className="text-cyber-crimson">-25 points</strong>{' '}
+            Tip: Wrong answers deduct <strong className="text-cyber-crimson">{pointsWrong} points</strong>{' '}
             every time you submit an incorrect solution until you solve the room. Read each code
             snippet carefully and verify your syntax before hitting Submit.
           </div>

@@ -25,6 +25,11 @@ import {
   getCloudDbUrl,
   setCloudDbUrl,
   updateAdminPassword,
+  getScoringSettings,
+  POINTS_CORRECT,
+  POINTS_WRONG,
+  POINTS_PAID_HINT,
+  POINTS_SKIP,
 } from '../services/realtimeStore';
 
 function getStatusBadge(status) {
@@ -44,6 +49,16 @@ function getStatusBadge(status) {
         label: 'Time Out',
         cls: 'border-cyber-crimson/40 bg-cyber-crimson/10 text-cyber-crimson',
       };
+    case 'left':
+      return {
+        label: 'Left Game',
+        cls: 'border-cyber-amber/50 bg-cyber-amber/15 text-cyber-amber',
+      };
+    case 'disconnected':
+      return {
+        label: 'Disconnected',
+        cls: 'border-slate-500/60 bg-slate-800/80 text-slate-300',
+      };
     default:
       return {
         label: 'Briefing',
@@ -55,11 +70,14 @@ function getStatusBadge(status) {
 export default function AdminDashboard({
   storeState,
   onUpdateTimer,
+  onUpdateScoring,
+  onAdjustScore,
   onResetAll,
   onRemovePlayer,
   onSeedDemo,
   onLockAdmin,
 }) {
+  const scoring = getScoringSettings(storeState);
   const [now, setNow] = useState(() => Date.now());
   const [durationInput, setDurationInput] = useState(
     String(storeState.settings?.globalDurationMinutes || 60)
@@ -70,21 +88,80 @@ export default function AdminDashboard({
   const [copiedUrl, setCopiedUrl] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [cloudUrlInput, setCloudUrlInput] = useState(() => getCloudDbUrl());
+  const [pointsCorrectInput, setPointsCorrectInput] = useState(String(scoring.pointsCorrect));
+  const [pointsWrongInput, setPointsWrongInput] = useState(String(scoring.pointsWrong));
+  const [pointsHintInput, setPointsHintInput] = useState(String(scoring.pointsPaidHint));
+  const [pointsSkipInput, setPointsSkipInput] = useState(String(scoring.pointsSkip));
+  const [freeHintsInput, setFreeHintsInput] = useState(String(scoring.freeHintsCount));
+  const [customScorePlayerId, setCustomScorePlayerId] = useState(null);
+  const [customScoreAmount, setCustomScoreAmount] = useState('50');
 
   // Tick every second so all active players' countdown timers stay live in real time
   useEffect(() => {
     const id = window.setInterval(() => setNow(Date.now()), 1000);
-    return () => window.clearInterval(id);
+    const handleSaveScoring = (e) => {
+    e.preventDefault();
+    onUpdateScoring({
+      pointsCorrect: Number(pointsCorrectInput) || 0,
+      pointsWrong: Number(pointsWrongInput) || 0,
+      pointsPaidHint: Number(pointsHintInput) || 0,
+      pointsSkip: Number(pointsSkipInput) || 0,
+      freeHintsCount: Math.max(0, Math.min(50, Number(freeHintsInput) || 0)),
+    });
+    showNotice('Scoring configuration updated in real time.');
+  };
+
+  const handleResetScoringDefaults = () => {
+    onUpdateScoring({
+      pointsCorrect: POINTS_CORRECT,
+      pointsWrong: POINTS_WRONG,
+      pointsPaidHint: POINTS_PAID_HINT,
+      pointsSkip: POINTS_SKIP,
+      freeHintsCount: INITIAL_FREE_HINTS,
+    });
+    showNotice('Scoring configuration restored to defaults.');
+  };
+
+  return () => window.clearInterval(id);
   }, []);
 
   useEffect(() => {
     setDurationInput(String(storeState.settings?.globalDurationMinutes || 60));
-  }, [storeState.settings?.globalDurationMinutes]);
+    const latest = getScoringSettings(storeState);
+    setPointsCorrectInput(String(latest.pointsCorrect));
+    setPointsWrongInput(String(latest.pointsWrong));
+    setPointsHintInput(String(latest.pointsPaidHint));
+    setPointsSkipInput(String(latest.pointsSkip));
+    setFreeHintsInput(String(latest.freeHintsCount));
+  }, [storeState.settings]);
 
   useEffect(() => {
     if (!confirmReset) return undefined;
     const t = window.setTimeout(() => setConfirmReset(false), 4000);
-    return () => window.clearTimeout(t);
+    const handleSaveScoring = (e) => {
+    e.preventDefault();
+    onUpdateScoring({
+      pointsCorrect: Number(pointsCorrectInput) || 0,
+      pointsWrong: Number(pointsWrongInput) || 0,
+      pointsPaidHint: Number(pointsHintInput) || 0,
+      pointsSkip: Number(pointsSkipInput) || 0,
+      freeHintsCount: Math.max(0, Math.min(50, Number(freeHintsInput) || 0)),
+    });
+    showNotice('Scoring configuration updated in real time.');
+  };
+
+  const handleResetScoringDefaults = () => {
+    onUpdateScoring({
+      pointsCorrect: POINTS_CORRECT,
+      pointsWrong: POINTS_WRONG,
+      pointsPaidHint: POINTS_PAID_HINT,
+      pointsSkip: POINTS_SKIP,
+      freeHintsCount: INITIAL_FREE_HINTS,
+    });
+    showNotice('Scoring configuration restored to defaults.');
+  };
+
+  return () => window.clearTimeout(t);
   }, [confirmReset]);
 
   const showNotice = (msg) => {
@@ -143,6 +220,29 @@ export default function AdminDashboard({
         ? 'Cloud Realtime DB connected for internet multi-device sync.'
         : 'Cloud Realtime DB disconnected (using built-in server sync).'
     );
+  };
+
+  const handleSaveScoring = (e) => {
+    e.preventDefault();
+    onUpdateScoring({
+      pointsCorrect: Number(pointsCorrectInput) || 0,
+      pointsWrong: Number(pointsWrongInput) || 0,
+      pointsPaidHint: Number(pointsHintInput) || 0,
+      pointsSkip: Number(pointsSkipInput) || 0,
+      freeHintsCount: Math.max(0, Math.min(50, Number(freeHintsInput) || 0)),
+    });
+    showNotice('Scoring configuration updated in real time.');
+  };
+
+  const handleResetScoringDefaults = () => {
+    onUpdateScoring({
+      pointsCorrect: POINTS_CORRECT,
+      pointsWrong: POINTS_WRONG,
+      pointsPaidHint: POINTS_PAID_HINT,
+      pointsSkip: POINTS_SKIP,
+      freeHintsCount: INITIAL_FREE_HINTS,
+    });
+    showNotice('Scoring configuration restored to defaults.');
   };
 
   return (
@@ -440,6 +540,125 @@ export default function AdminDashboard({
         </div>
       </section>
 
+      {/* Scoring & Rules Configuration */}
+      <section
+        aria-label="Scoring and rules configuration"
+        className="cyber-panel rounded-2xl p-5"
+      >
+        <form onSubmit={handleSaveScoring} className="space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-2 text-sm font-semibold text-cyber-text">
+              <Sliders className="h-4 w-4 text-cyber-emerald" aria-hidden="true" />
+              Scoring &amp; Rules Configuration
+            </div>
+            <span className="text-xs text-cyber-muted">
+              Use negative numbers (e.g. -25) for penalties and positive numbers (e.g. 100) for rewards
+            </span>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
+            <div>
+              <label
+                htmlFor="cfg-correct-pts"
+                className="mb-1.5 block text-xs font-medium text-cyber-emerald"
+              >
+                Correct Answer (+)
+              </label>
+              <input
+                id="cfg-correct-pts"
+                type="number"
+                value={pointsCorrectInput}
+                onChange={(e) => setPointsCorrectInput(e.target.value)}
+                className="tabular-nums min-h-[42px] w-full rounded-lg border border-cyber-border bg-cyber-bg px-3 py-2 font-mono text-sm font-semibold text-cyber-text focus:border-cyber-emerald focus:outline-none"
+              />
+            </div>
+
+            <div>
+              <label
+                htmlFor="cfg-wrong-pts"
+                className="mb-1.5 block text-xs font-medium text-cyber-crimson"
+              >
+                Wrong Answer (-)
+              </label>
+              <input
+                id="cfg-wrong-pts"
+                type="number"
+                value={pointsWrongInput}
+                onChange={(e) => setPointsWrongInput(e.target.value)}
+                className="tabular-nums min-h-[42px] w-full rounded-lg border border-cyber-border bg-cyber-bg px-3 py-2 font-mono text-sm font-semibold text-cyber-text focus:border-cyber-crimson focus:outline-none"
+              />
+            </div>
+
+            <div>
+              <label
+                htmlFor="cfg-hint-pts"
+                className="mb-1.5 block text-xs font-medium text-cyber-amber"
+              >
+                Paid Hint (-)
+              </label>
+              <input
+                id="cfg-hint-pts"
+                type="number"
+                value={pointsHintInput}
+                onChange={(e) => setPointsHintInput(e.target.value)}
+                className="tabular-nums min-h-[42px] w-full rounded-lg border border-cyber-border bg-cyber-bg px-3 py-2 font-mono text-sm font-semibold text-cyber-text focus:border-cyber-amber focus:outline-none"
+              />
+            </div>
+
+            <div>
+              <label
+                htmlFor="cfg-skip-pts"
+                className="mb-1.5 block text-xs font-medium text-cyber-muted"
+              >
+                Skip Room (0 / -)
+              </label>
+              <input
+                id="cfg-skip-pts"
+                type="number"
+                value={pointsSkipInput}
+                onChange={(e) => setPointsSkipInput(e.target.value)}
+                className="tabular-nums min-h-[42px] w-full rounded-lg border border-cyber-border bg-cyber-bg px-3 py-2 font-mono text-sm font-semibold text-cyber-text focus:border-cyber-cyan focus:outline-none"
+              />
+            </div>
+
+            <div className="col-span-2 sm:col-span-1">
+              <label
+                htmlFor="cfg-free-hints"
+                className="mb-1.5 block text-xs font-medium text-cyber-cyan"
+              >
+                Free Hints (New Players)
+              </label>
+              <input
+                id="cfg-free-hints"
+                type="number"
+                min={0}
+                max={50}
+                value={freeHintsInput}
+                onChange={(e) => setFreeHintsInput(e.target.value)}
+                className="tabular-nums min-h-[42px] w-full rounded-lg border border-cyber-border bg-cyber-bg px-3 py-2 font-mono text-sm font-semibold text-cyber-text focus:border-cyber-cyan focus:outline-none"
+              />
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2.5 pt-1">
+            <button
+              type="submit"
+              className="inline-flex min-h-[42px] items-center gap-2 rounded-lg bg-cyber-emerald px-4 py-2 text-xs font-bold text-slate-950 transition-colors hover:bg-emerald-400"
+            >
+              Save Scoring Config
+            </button>
+
+            <button
+              type="button"
+              onClick={handleResetScoringDefaults}
+              className="inline-flex min-h-[42px] items-center gap-2 rounded-lg border border-cyber-border bg-cyber-bg px-4 py-2 text-xs font-semibold text-cyber-muted transition-colors hover:text-cyber-text"
+            >
+              Reset Defaults (+100 / -25 / -50 / 0)
+            </button>
+          </div>
+        </form>
+      </section>
+
       {/* Live Monitoring & Leaderboard Table */}
       <section
         aria-label="Live player leaderboard"
@@ -485,6 +704,8 @@ export default function AdminDashboard({
                   <th className="px-4 py-3.5">Remaining Time</th>
                   <th className="px-4 py-3.5">Current Score</th>
                   <th className="px-4 py-3.5">Hints Used</th>
+                  <th className="px-4 py-3.5">Skipped</th>
+                  <th className="px-4 py-3.5">Tab Switches</th>
                   <th className="px-4 py-3.5">Status</th>
                   <th className="px-4 py-3.5 text-right">Action</th>
                 </tr>
@@ -500,7 +721,30 @@ export default function AdminDashboard({
                   const urgentTimer =
                     player.effectiveStatus === 'active' && player.liveRemainingSeconds <= 60;
 
-                  return (
+                  const handleSaveScoring = (e) => {
+    e.preventDefault();
+    onUpdateScoring({
+      pointsCorrect: Number(pointsCorrectInput) || 0,
+      pointsWrong: Number(pointsWrongInput) || 0,
+      pointsPaidHint: Number(pointsHintInput) || 0,
+      pointsSkip: Number(pointsSkipInput) || 0,
+      freeHintsCount: Math.max(0, Math.min(50, Number(freeHintsInput) || 0)),
+    });
+    showNotice('Scoring configuration updated in real time.');
+  };
+
+  const handleResetScoringDefaults = () => {
+    onUpdateScoring({
+      pointsCorrect: POINTS_CORRECT,
+      pointsWrong: POINTS_WRONG,
+      pointsPaidHint: POINTS_PAID_HINT,
+      pointsSkip: POINTS_SKIP,
+      freeHintsCount: INITIAL_FREE_HINTS,
+    });
+    showNotice('Scoring configuration restored to defaults.');
+  };
+
+  return (
                     <tr
                       key={player.id}
                       className="transition-colors hover:bg-cyber-surfaceElevated/60"
@@ -562,15 +806,84 @@ export default function AdminDashboard({
                       </td>
 
                       <td className="px-4 py-3.5">
-                        <span
-                          className={`tabular-nums font-mono text-base font-bold ${
-                            player.score >= 0 ? 'text-cyber-emerald' : 'text-cyber-crimson'
-                          }`}
-                        >
-                          {player.score}
-                        </span>
+                        <div className="flex items-center gap-2">
+                          <span
+                            className={`tabular-nums font-mono text-base font-bold ${
+                              player.score >= 0 ? 'text-cyber-emerald' : 'text-cyber-crimson'
+                            }`}
+                          >
+                            {player.score}
+                          </span>
+                          <div className="inline-flex items-center gap-1">
+                            <button
+                              type="button"
+                              onClick={() => onAdjustScore(player.id, -25)}
+                              title="Subtract 25 points"
+                              aria-label={`Subtract 25 points from ${player.name}`}
+                              className="rounded border border-cyber-crimson/40 bg-cyber-crimson/10 px-1.5 py-0.5 font-mono text-[11px] font-bold text-cyber-crimson transition-colors hover:bg-cyber-crimson/25"
+                            >
+                              -25
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => onAdjustScore(player.id, 25)}
+                              title="Add 25 points"
+                              aria-label={`Add 25 points to ${player.name}`}
+                              className="rounded border border-cyber-emerald/40 bg-cyber-emerald/10 px-1.5 py-0.5 font-mono text-[11px] font-bold text-cyber-emerald transition-colors hover:bg-cyber-emerald/25"
+                            >
+                              +25
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setCustomScorePlayerId((prev) =>
+                                  prev === player.id ? null : player.id
+                                )
+                              }
+                              title="Custom score adjustment"
+                              className="rounded border border-cyber-border bg-cyber-bg px-1.5 py-0.5 font-mono text-[11px] font-semibold text-cyber-muted transition-colors hover:border-cyber-cyan/50 hover:text-cyber-cyan"
+                            >
+                              ±
+                            </button>
+                          </div>
+                        </div>
+
+                        {customScorePlayerId === player.id ? (
+                          <div className="mt-2 flex items-center gap-1">
+                            <input
+                              type="number"
+                              min={1}
+                              max={10000}
+                              value={customScoreAmount}
+                              onChange={(e) => setCustomScoreAmount(e.target.value)}
+                              aria-label={`Custom points amount for ${player.name}`}
+                              className="tabular-nums w-16 rounded border border-cyber-border bg-cyber-bg px-2 py-1 font-mono text-xs text-cyber-text focus:border-cyber-cyan focus:outline-none"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const amt = Math.abs(Number(customScoreAmount) || 0);
+                                if (amt > 0) onAdjustScore(player.id, -amt);
+                              }}
+                              className="rounded bg-cyber-crimson/20 px-2 py-1 font-mono text-[11px] font-bold text-cyber-crimson hover:bg-cyber-crimson/35"
+                            >
+                              -
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const amt = Math.abs(Number(customScoreAmount) || 0);
+                                if (amt > 0) onAdjustScore(player.id, amt);
+                              }}
+                              className="rounded bg-cyber-emerald/20 px-2 py-1 font-mono text-[11px] font-bold text-cyber-emerald hover:bg-cyber-emerald/35"
+                            >
+                              +
+                            </button>
+                          </div>
+                        ) : null}
+
                         {player.wrongAttempts > 0 ? (
-                          <div className="tabular-nums text-[11px] text-cyber-muted">
+                          <div className="tabular-nums mt-0.5 text-[11px] text-cyber-muted">
                             {player.wrongAttempts} wrong
                           </div>
                         ) : null}
@@ -581,7 +894,40 @@ export default function AdminDashboard({
                           {player.hintsUsed || 0} used
                         </div>
                         <div className="tabular-nums text-[11px] text-cyber-muted">
-                          {player.freeHintsRemaining}/{INITIAL_FREE_HINTS} free left
+                          {player.freeHintsRemaining}/{scoring.freeHintsCount} free left
+                        </div>
+                      </td>
+
+                      <td className="px-4 py-3.5">
+                        <span
+                          className={`tabular-nums inline-flex items-center rounded-lg border px-2.5 py-1 font-mono text-xs font-semibold ${
+                            (player.skippedCount || 0) > 0
+                              ? 'border-cyber-amber/40 bg-cyber-amber/10 text-cyber-amber'
+                              : 'border-cyber-border bg-cyber-bg text-cyber-muted'
+                          }`}
+                        >
+                          {player.skippedCount || 0} skipped
+                        </span>
+                      </td>
+
+                      <td className="px-4 py-3.5">
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <span
+                            className={`tabular-nums inline-flex items-center rounded-lg border px-2.5 py-1 font-mono text-xs font-semibold ${
+                              (player.tabSwitches || 0) > 0
+                                ? 'border-cyber-crimson/40 bg-cyber-crimson/10 text-cyber-crimson'
+                                : 'border-cyber-emerald/30 bg-cyber-emerald/10 text-cyber-emerald'
+                            }`}
+                          >
+                            {(player.tabSwitches || 0) > 0
+                              ? `Yes (${player.tabSwitches}×)`
+                              : 'No (0×)'}
+                          </span>
+                          {player.effectiveStatus === 'active' && player.isTabAway ? (
+                            <span className="inline-flex items-center gap-1 rounded-full border border-cyber-crimson/60 bg-cyber-crimson/20 px-2 py-0.5 font-mono text-[10px] font-bold text-cyber-crimson animate-pulse">
+                              AWAY NOW
+                            </span>
+                          ) : null}
                         </div>
                       </td>
 

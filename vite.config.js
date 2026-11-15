@@ -28,6 +28,11 @@ function createInitialState() {
     players: {},
     settings: {
       globalDurationMinutes: 60,
+      pointsCorrect: 100,
+      pointsWrong: -25,
+      pointsPaidHint: -50,
+      pointsSkip: 0,
+      freeHintsCount: 3,
       adminPasswordHash: 'admin123',
       updatedAt: 0,
     },
@@ -42,12 +47,18 @@ function loadPersistedState() {
       const raw = fs.readFileSync(DB_FILE_PATH, 'utf-8');
       const parsed = JSON.parse(raw);
       if (parsed && typeof parsed === 'object') {
+        const s = parsed.settings || {};
         return {
           players: parsed.players && typeof parsed.players === 'object' ? parsed.players : {},
           settings: {
-            globalDurationMinutes: Number(parsed.settings?.globalDurationMinutes) || 60,
-            adminPasswordHash: parsed.settings?.adminPasswordHash || 'admin123',
-            updatedAt: Number(parsed.settings?.updatedAt) || 0,
+            globalDurationMinutes: Number(s.globalDurationMinutes) || 60,
+            pointsCorrect: s.pointsCorrect !== undefined ? Number(s.pointsCorrect) : 100,
+            pointsWrong: s.pointsWrong !== undefined ? Number(s.pointsWrong) : -25,
+            pointsPaidHint: s.pointsPaidHint !== undefined ? Number(s.pointsPaidHint) : -50,
+            pointsSkip: s.pointsSkip !== undefined ? Number(s.pointsSkip) : 0,
+            freeHintsCount: s.freeHintsCount !== undefined ? Number(s.freeHintsCount) : 3,
+            adminPasswordHash: s.adminPasswordHash || 'admin123',
+            updatedAt: Number(s.updatedAt) || 0,
           },
           revision: Number(parsed.revision) || 1,
           resetEpoch: Number(parsed.resetEpoch) || 0,
@@ -154,23 +165,75 @@ function escapeStateApiPlugin() {
             const now = Date.now();
 
             if (action.type === 'UPSERT_PLAYER' && action.player?.id) {
+              const incomingName = String(action.player.name || '').trim().toLowerCase();
+              const isNewPlayer = !state.players[action.player.id];
+              if (isNewPlayer && incomingName) {
+                const duplicate = Object.values(state.players).some(
+                  (p) => String(p.name || '').trim().toLowerCase() === incomingName
+                );
+                if (duplicate) {
+                  res.statusCode = 409;
+                  res.setHeader('Content-Type', 'application/json');
+                  res.end(
+                    JSON.stringify({
+                      error: 'This player name is already taken. Please choose a different name.',
+                    })
+                  );
+                  return;
+                }
+              }
               const incomingPlayer = {
                 ...action.player,
+                lastHeartbeat: now,
                 lastUpdated: now,
               };
               state.players[incomingPlayer.id] = incomingPlayer;
+            } else if (action.type === 'HEARTBEAT_PLAYER' && action.playerId) {
+              const cur = state.players[action.playerId];
+              if (cur && (cur.status === 'active' || cur.status === 'briefing' || cur.status === 'disconnected')) {
+                state.players[action.playerId] = {
+                  ...cur,
+                  status: cur.status === 'disconnected' ? (cur.startTime ? 'active' : 'briefing') : cur.status,
+                  isDisconnected: false,
+                  lastHeartbeat: now,
+                };
+              }
+            } else if (action.type === 'PLAYER_DISCONNECT' && action.playerId) {
+              const cur = state.players[action.playerId];
+              if (cur && (cur.status === 'active' || cur.status === 'briefing')) {
+                state.players[action.playerId] = {
+                  ...cur,
+                  status: action.reason === 'left' ? 'left' : 'disconnected',
+                  isDisconnected: true,
+                  lastUpdated: now,
+                  lastEvent: action.reason === 'left' ? 'Exited Game' : 'Closed Tab / Disconnected',
+                };
+              }
             } else if (action.type === 'REMOVE_PLAYER' && action.playerId) {
               delete state.players[action.playerId];
             } else if (action.type === 'UPDATE_SETTINGS' && action.settings) {
+              const s = action.settings;
               const mins = Math.max(
                 1,
-                Math.min(240, Number(action.settings.globalDurationMinutes) || 60)
+                Math.min(240, Number(s.globalDurationMinutes) || state.settings.globalDurationMinutes || 60)
               );
               state.settings = {
                 ...state.settings,
                 globalDurationMinutes: mins,
+                pointsCorrect:
+                  s.pointsCorrect !== undefined ? Number(s.pointsCorrect) : state.settings.pointsCorrect,
+                pointsWrong:
+                  s.pointsWrong !== undefined ? Number(s.pointsWrong) : state.settings.pointsWrong,
+                pointsPaidHint:
+                  s.pointsPaidHint !== undefined ? Number(s.pointsPaidHint) : state.settings.pointsPaidHint,
+                pointsSkip:
+                  s.pointsSkip !== undefined ? Number(s.pointsSkip) : state.settings.pointsSkip,
+                freeHintsCount:
+                  s.freeHintsCount !== undefined
+                    ? Math.max(0, Math.min(50, Number(s.freeHintsCount)))
+                    : state.settings.freeHintsCount,
                 adminPasswordHash:
-                  action.settings.adminPasswordHash || state.settings.adminPasswordHash || 'admin123',
+                  s.adminPasswordHash || state.settings.adminPasswordHash || 'admin123',
                 updatedAt: now,
               };
               if (action.applyToActive) {

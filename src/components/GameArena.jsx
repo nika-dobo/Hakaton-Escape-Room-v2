@@ -11,6 +11,7 @@ import {
   Terminal,
   ShieldCheck,
   RotateCcw,
+  SkipForward,
 } from 'lucide-react';
 import { getRoomById, checkRoomAnswer, TOTAL_ROOMS } from '../data/rooms';
 import {
@@ -34,12 +35,20 @@ function getCategoryStyle(category) {
 
 export default function GameArena({
   player,
+  scoringSettings,
   onSubmitAnswer,
   onUseHint,
+  onSkipRoom,
+  onTabFocusChange,
   onTimeout,
   onLeaveSession,
   onOpenAdminView,
 }) {
+  const pointsCorrect = scoringSettings?.pointsCorrect ?? POINTS_CORRECT;
+  const pointsWrong = scoringSettings?.pointsWrong ?? POINTS_WRONG;
+  const pointsPaidHint = scoringSettings?.pointsPaidHint ?? POINTS_PAID_HINT;
+  const pointsSkip = scoringSettings?.pointsSkip ?? 0;
+  const totalFreeHints = scoringSettings?.freeHintsCount ?? INITIAL_FREE_HINTS;
   const [answerInput, setAnswerInput] = useState('');
   const [validationMsg, setValidationMsg] = useState('');
   const [feedbackAnim, setFeedbackAnim] = useState(null); // 'correct' | 'wrong' | null
@@ -48,6 +57,7 @@ export default function GameArena({
   const inputRef = useRef(null);
   const animTimerRef = useRef(null);
   const toastTimerRef = useRef(null);
+  const isAwayRef = useRef(false);
 
   const room = getRoomById(player.currentRoom);
   const remainingSeconds = computeRemainingSeconds(player, now, player.allocatedMinutes);
@@ -68,6 +78,42 @@ export default function GameArena({
     }, 1000);
     return () => window.clearInterval(interval);
   }, [player, onTimeout]);
+
+  // Track tab / window switches while active
+  useEffect(() => {
+    if (player.status !== 'active' || !onTabFocusChange) return undefined;
+
+    const updateAway = (away) => {
+      if (isAwayRef.current === away) return;
+      isAwayRef.current = away;
+      onTabFocusChange(player.id, away);
+    };
+
+    const handleVisibility = () => {
+      if (document.hidden) {
+        updateAway(true);
+      } else if (document.hasFocus()) {
+        updateAway(false);
+      }
+    };
+
+    const handleBlur = () => updateAway(true);
+    const handleFocus = () => {
+      if (!document.hidden) {
+        updateAway(false);
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibility);
+    window.addEventListener('blur', handleBlur);
+    window.addEventListener('focus', handleFocus);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibility);
+      window.removeEventListener('blur', handleBlur);
+      window.removeEventListener('focus', handleFocus);
+    };
+  }, [player.id, player.status, onTabFocusChange]);
 
   // Clear input & validation when moving to a new room
   useEffect(() => {
@@ -122,7 +168,7 @@ export default function GameArena({
       triggerCardAnim('correct');
       showToast(
         'success',
-        `+${POINTS_CORRECT} PTS`,
+        `${pointsCorrect >= 0 ? `+${pointsCorrect}` : pointsCorrect} PTS`,
         room.id === TOTAL_ROOMS
           ? 'Final room decrypted! Escape complete.'
           : `Room ${room.id} cleared — advancing to Room ${room.id + 1}.`
@@ -131,9 +177,9 @@ export default function GameArena({
     } else {
       triggerCardAnim('wrong');
       setValidationMsg(
-        `Incorrect answer. ${POINTS_WRONG} points deducted — inspect the code carefully and try again.`
+        `Incorrect answer. ${pointsWrong} points deducted — inspect the code carefully and try again.`
       );
-      showToast('error', `${POINTS_WRONG} PTS`, `Wrong attempt on Room ${room.id}.`);
+      showToast('error', `${pointsWrong} PTS`, `Wrong attempt on Room ${room.id}.`);
       inputRef.current?.select();
     }
   };
@@ -146,15 +192,30 @@ export default function GameArena({
       showToast(
         'hint',
         'FREE HINT UNLOCKED',
-        `${freeHintsLeft - 1} of ${INITIAL_FREE_HINTS} free hints remaining.`
+        `${freeHintsLeft - 1} of ${totalFreeHints} free hints remaining.`
       );
     } else {
       showToast(
         'warning',
-        `${POINTS_PAID_HINT} PTS`,
+        `${pointsPaidHint} PTS`,
         `Paid hint unlocked for Room ${room.id}.`
       );
     }
+  };
+
+  const handleSkipClick = () => {
+    if (player.status !== 'active') return;
+    onSkipRoom(player.id, room.id);
+    setAnswerInput('');
+    setValidationMsg('');
+    const skipLabel = pointsSkip > 0 ? `+${pointsSkip}` : `${pointsSkip}`;
+    showToast(
+      'hint',
+      `ROOM SKIPPED (${skipLabel} PTS)`,
+      room.id === TOTAL_ROOMS
+        ? 'Final room skipped — run completed.'
+        : `Skipped Room ${room.id} — advancing to Room ${room.id + 1}.`
+    );
   };
 
   const progressPct = Math.round(((player.completedRooms || 0) / TOTAL_ROOMS) * 100);
@@ -336,7 +397,7 @@ export default function GameArena({
           <div className="rounded-xl border border-cyber-border bg-cyber-bg/80 px-3.5 py-2.5">
             <div className="text-[11px] font-medium text-cyber-muted">Free Hints</div>
             <div className="tabular-nums font-mono text-base font-bold text-cyber-amber sm:text-lg">
-              {freeHintsLeft} / {INITIAL_FREE_HINTS}
+              {freeHintsLeft} / {totalFreeHints}
             </div>
           </div>
 
@@ -410,8 +471,8 @@ export default function GameArena({
           </div>
 
           <div className="flex items-center gap-3 font-mono text-xs text-cyber-muted">
-            <span>Pass: +{POINTS_CORRECT}</span>
-            <span className="text-cyber-crimson">Miss: {POINTS_WRONG}</span>
+            <span>Pass: {pointsCorrect >= 0 ? `+${pointsCorrect}` : pointsCorrect}</span>
+            <span className="text-cyber-crimson">Miss: {pointsWrong}</span>
           </div>
         </div>
 
@@ -432,14 +493,14 @@ export default function GameArena({
             <span className="font-mono text-[11px] text-slate-500">READ-ONLY</span>
           </div>
           <div className="overflow-x-auto p-4">
-            <pre className="font-mono text-sm leading-6 text-slate-200">
-              <code>
+            <pre className="m-0 font-mono text-sm leading-6 text-slate-200">
+              <code className="block">
                 {codeLines.map((line, index) => (
-                  <div key={index} className="table-row">
-                    <span className="table-cell select-none pr-4 text-right text-xs text-slate-600">
+                  <div key={index} className="flex items-baseline">
+                    <span className="w-8 shrink-0 select-none pr-4 text-right text-xs text-slate-600">
                       {index + 1}
                     </span>
-                    <span className="table-cell whitespace-pre">{line}</span>
+                    <span className="whitespace-pre">{line || ' '}</span>
                   </div>
                 ))}
               </code>
@@ -466,7 +527,7 @@ export default function GameArena({
           <label htmlFor="room-answer-input" className="block text-sm font-medium text-cyber-muted">
             Your Solution
           </label>
-          <div className="flex flex-col gap-3 sm:flex-row">
+          <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap">
             <input
               ref={inputRef}
               id="room-answer-input"
@@ -481,12 +542,12 @@ export default function GameArena({
               placeholder="Type your exact answer..."
               aria-invalid={Boolean(validationMsg)}
               aria-describedby={validationMsg ? 'answer-feedback-error' : undefined}
-              className="min-h-[48px] flex-1 rounded-xl border border-cyber-border bg-cyber-bg px-4 py-3 font-mono text-base text-cyber-text placeholder:text-slate-500 focus:border-cyber-cyan focus:outline-none focus:ring-2 focus:ring-cyber-cyan/30"
+              className="min-h-[48px] min-w-[220px] flex-1 rounded-xl border border-cyber-border bg-cyber-bg px-4 py-3 font-mono text-base text-cyber-text placeholder:text-slate-500 focus:border-cyber-cyan focus:outline-none focus:ring-2 focus:ring-cyber-cyan/30"
             />
 
             <button
               type="submit"
-              className="inline-flex min-h-[48px] items-center justify-center gap-2 rounded-xl bg-cyber-cyan px-6 py-3 text-sm font-bold text-slate-950 transition-all duration-150 hover:bg-cyan-300 active:scale-[0.98]"
+              className="inline-flex min-h-[48px] shrink-0 items-center justify-center gap-2 rounded-xl bg-cyber-cyan px-6 py-3 text-sm font-bold text-slate-950 transition-all duration-150 hover:bg-cyan-300 active:scale-[0.98]"
             >
               <Send className="h-4 w-4" aria-hidden="true" />
               Submit
@@ -497,7 +558,7 @@ export default function GameArena({
               onClick={handleHintClick}
               disabled={isHintUnlocked}
               aria-disabled={isHintUnlocked}
-              className={`inline-flex min-h-[48px] items-center justify-center gap-2 rounded-xl border px-5 py-3 text-sm font-semibold transition-all duration-150 ${
+              className={`inline-flex min-h-[48px] shrink-0 items-center justify-center gap-2 rounded-xl border px-5 py-3 text-sm font-semibold transition-all duration-150 ${
                 isHintUnlocked
                   ? 'cursor-not-allowed border-cyber-border bg-cyber-surface/40 text-slate-500 opacity-50'
                   : freeHintsLeft > 0
@@ -509,8 +570,18 @@ export default function GameArena({
               {isHintUnlocked
                 ? 'Hint Used'
                 : freeHintsLeft > 0
-                ? `Hint (Free ${freeHintsLeft}/3)`
-                : `Hint (${POINTS_PAID_HINT} pts)`}
+                ? `Hint (Free ${freeHintsLeft}/${totalFreeHints})`
+                : `Hint (${pointsPaidHint} pts)`}
+            </button>
+
+            <button
+              type="button"
+              onClick={handleSkipClick}
+              title={`Skip this room (${pointsSkip >= 0 ? `+${pointsSkip}` : pointsSkip} pts)`}
+              className="inline-flex min-h-[48px] shrink-0 items-center justify-center gap-2 rounded-xl border border-slate-600/80 bg-cyber-surfaceElevated px-4 py-3 text-sm font-semibold text-cyber-text transition-all duration-150 hover:border-cyber-cyan/60 hover:text-cyber-cyan active:scale-[0.98]"
+            >
+              <SkipForward className="h-4 w-4" aria-hidden="true" />
+              {pointsSkip !== 0 ? `Skip (${pointsSkip})` : 'Skip Room'}
             </button>
           </div>
 
