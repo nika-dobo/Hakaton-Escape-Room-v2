@@ -1,0 +1,74 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    scrollbar-gutter: stable;
+    color-scheme: dark;
+  }
+
+  body {
+    font-family: 'Space Grotesk', system-ui, -apple-system, sans-serif;
+    background-color: #07090e;
+    color: #f1f5f9;
+    min-height: 100vh;
+    background-image:
+      radial-gradient(circle at 15% 15%, rgba(0, 240, 255, 0.06), transparent 35%),
+      radial-gradient(circle at 85% 80%, rgba(16, 185, 129, 0.05), transparent 35%),
+      linear-gradient(to right, rgba(30, 41, 59, 0.18) 1px, transparent 1px),
+      linear-gradient(to bottom, rgba(30, 41, 59, 0.18) 1px, transparent 1px);
+    background-size: 100% 100%, 100% 100%, 40px 40px, 40px 40px;
+  }
+
+  *:focus-visible {
+    outline: 2px solid #00f0ff;
+    outline-offset: 2px;
+  }
+}
+
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+.cyber-panel {
+  background: rgba(14, 20, 31, 0.92);
+  border: 1px solid rgba(30, 41, 59, 0.95);
+  box-shadow:
+    0 0 0 1px rgba(0, 240, 255, 0.04),
+    0 20px 50px -12px rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(12px);
+}
+
+.cyber-grid-border {
+  border: 1px solid #1e293b;
+}
+
+/* Custom subtle scrollbars for code snippets and tables */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #07090e;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #1e293b;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #334155;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
