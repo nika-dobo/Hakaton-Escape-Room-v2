@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 
 const DB_FILE = '/tmp/cipher50-escape-room-db.json';
+const REDIS_KEY = 'cipher50_escape_room_state_v2';
 
 function createInitialState() {
   return {
@@ -20,29 +21,112 @@ function createInitialState() {
   };
 }
 
-function loadState() {
+function normalizeState(parsed) {
+  const base = createInitialState();
+  if (!parsed || typeof parsed !== 'object') return base;
+  return {
+    ...base,
+    ...parsed,
+    settings: {
+      ...base.settings,
+      ...(parsed.settings || {}),
+    },
+    players: parsed.players && typeof parsed.players === 'object' ? parsed.players : {},
+  };
+}
+
+function getRedisConfig() {
+  const url = process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL;
+  const token = process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN;
+  if (url && token) {
+    return { url: url.replace(/\/+$/, ''), token };
+  }
+  return null;
+}
+
+function getFirebaseUrl() {
+  const url = process.env.FIREBASE_DB_URL || process.env.VITE_FIREBASE_DB_URL;
+  return url ? url.trim().replace(/\/+$/, '') : '';
+}
+
+async function loadState() {
+  const redis = getRedisConfig();
+  if (redis) {
+    try {
+      const res = await fetch(`${redis.url}/get/${REDIS_KEY}`, {
+        headers: { Authorization: `Bearer ${redis.token}` },
+        cache: 'no-store',
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data?.result) {
+          const parsed = typeof data.result === 'string' ? JSON.parse(data.result) : data.result;
+          return { state: normalizeState(parsed), storageMode: 'redis' };
+        }
+      }
+    } catch {
+      // fall through
+    }
+    return { state: createInitialState(), storageMode: 'redis' };
+  }
+
+  const fbUrl = getFirebaseUrl();
+  if (fbUrl) {
+    try {
+      const res = await fetch(`${fbUrl}/cipher50.json`, { cache: 'no-store' });
+      if (res.ok) {
+        const data = await res.json();
+        return { state: normalizeState(data), storageMode: 'firebase' };
+      }
+    } catch {
+      // fall through
+    }
+    return { state: createInitialState(), storageMode: 'firebase' };
+  }
+
   try {
     if (fs.existsSync(DB_FILE)) {
       const parsed = JSON.parse(fs.readFileSync(DB_FILE, 'utf-8'));
-      if (parsed && typeof parsed === 'object') {
-        return {
-          ...createInitialState(),
-          ...parsed,
-          settings: {
-            ...createInitialState().settings,
-            ...(parsed.settings || {}),
-          },
-          players: parsed.players && typeof parsed.players === 'object' ? parsed.players : {},
-        };
-      }
+      return { state: normalizeState(parsed), storageMode: 'ephemeral' };
     }
   } catch {
-    // fallback to fresh state
+    // ignore /tmp read errors
   }
-  return createInitialState();
+  return { state: createInitialState(), storageMode: 'ephemeral' };
 }
 
-function saveState(state) {
+async function saveState(state) {
+  const redis = getRedisConfig();
+  if (redis) {
+    try {
+      await fetch(`${redis.url}/set/${REDIS_KEY}`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${redis.token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(JSON.stringify(state)),
+      });
+      return;
+    } catch {
+      // fall through
+    }
+  }
+
+  const fbUrl = getFirebaseUrl();
+  if (fbUrl) {
+    try {
+      await fetch(`${fbUrl}/cipher50.json`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(state),
+      });
+      return;
+    } catch {
+      // fall through
+    }
+  }
+
   try {
     fs.writeFileSync(DB_FILE, JSON.stringify(state), 'utf-8');
   } catch {
@@ -60,10 +144,11 @@ export default async function handler(req, res) {
     return res.status(204).end();
   }
 
-  let state = loadState();
+  const { state: loadedState, storageMode } = await loadState();
+  let state = loadedState;
 
   if (req.method === 'GET') {
-    return res.status(200).json({ ...state, serverTime: Date.now() });
+    return res.status(200).json({ ...state, storageMode, serverTime: Date.now() });
   }
 
   if (req.method === 'POST') {
@@ -91,10 +176,14 @@ export default async function handler(req, res) {
         };
       } else if (action.type === 'HEARTBEAT_PLAYER' && action.playerId) {
         const cur = state.players[action.playerId];
-        if (cur && (cur.status === 'active' || cur.status === 'briefing' || cur.status === 'disconnected')) {
+        if (
+          cur &&
+          (cur.status === 'active' || cur.status === 'briefing' || cur.status === 'disconnected')
+        ) {
           state.players[action.playerId] = {
             ...cur,
-            status: cur.status === 'disconnected' ? (cur.startTime ? 'active' : 'briefing') : cur.status,
+            status:
+              cur.status === 'disconnected' ? (cur.startTime ? 'active' : 'briefing') : cur.status,
             isDisconnected: false,
             lastHeartbeat: now,
           };
@@ -126,14 +215,15 @@ export default async function handler(req, res) {
           pointsWrong:
             s.pointsWrong !== undefined ? Number(s.pointsWrong) : state.settings.pointsWrong,
           pointsPaidHint:
-            s.pointsPaidHint !== undefined ? Number(s.pointsPaidHint) : state.settings.pointsPaidHint,
+            s.pointsPaidHint !== undefined
+              ? Number(s.pointsPaidHint)
+              : state.settings.pointsPaidHint,
           pointsSkip: s.pointsSkip !== undefined ? Number(s.pointsSkip) : state.settings.pointsSkip,
           freeHintsCount:
             s.freeHintsCount !== undefined
               ? Math.max(0, Math.min(50, Number(s.freeHintsCount)))
               : state.settings.freeHintsCount,
-          adminPasswordHash:
-            s.adminPasswordHash || state.settings.adminPasswordHash || 'admin123',
+          adminPasswordHash: s.adminPasswordHash || state.settings.adminPasswordHash || 'admin123',
           updatedAt: now,
         };
         if (action.applyToActive) {
@@ -190,8 +280,8 @@ export default async function handler(req, res) {
       }
 
       state.revision += 1;
-      saveState(state);
-      return res.status(200).json({ ...state, serverTime: now });
+      await saveState(state);
+      return res.status(200).json({ ...state, storageMode, serverTime: now });
     } catch (err) {
       return res.status(400).json({ error: err.message || 'Invalid JSON' });
     }

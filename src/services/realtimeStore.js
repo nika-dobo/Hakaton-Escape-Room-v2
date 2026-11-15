@@ -381,8 +381,8 @@ export function initRealtimeStore() {
     })
     .catch(() => {});
 
-  // Connect to SSE stream for instant server push across devices
-  if ('EventSource' in window) {
+  // Connect to SSE stream only in Vite dev mode (Vercel serverless uses /api/state polling)
+  if (import.meta.env?.DEV && 'EventSource' in window) {
     try {
       eventSource = new EventSource('/api/events');
       eventSource.onmessage = (event) => {
