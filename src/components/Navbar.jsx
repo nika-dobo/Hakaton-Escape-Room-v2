@@ -9,14 +9,14 @@ export default function Navbar({
   onOpenAdminTab,
 }) {
   return (
-    <header className="sticky top-0 z-40 border-b border-cyber-border bg-cyber-bg/90 backdrop-blur-md">
-      <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-3 px-4 py-3 sm:px-6">
-        <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-lg border border-cyber-cyan/40 bg-cyber-cyan/10 text-cyber-cyan shadow-[0_0_16px_rgba(0,240,255,0.2)]">
+    <header className="sticky top-0 z-40 w-full border-b border-cyber-border bg-cyber-bg/90 backdrop-blur-md">
+      <div className="mx-auto flex w-full max-w-7xl flex-wrap items-center justify-between gap-3 px-3 py-3 sm:px-6">
+        <div className="flex min-w-0 items-center gap-3">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-cyber-cyan/40 bg-cyber-cyan/10 text-cyber-cyan shadow-[0_0_16px_rgba(0,240,255,0.2)]">
             <Terminal className="h-5 w-5" aria-hidden="true" />
           </div>
-          <div>
-            <div className="flex items-center gap-2">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
               <span className="font-mono text-base font-bold tracking-tight text-cyber-text sm:text-lg">
                 CIPHER//50
               </span>
@@ -33,7 +33,7 @@ export default function Navbar({
 
         <nav
           aria-label="Primary mode navigation"
-          className="flex flex-wrap items-center gap-2"
+          className="flex min-w-0 max-w-full flex-wrap items-center gap-2"
         >
           <button
             type="button"

@@ -30,39 +30,45 @@ export default function BriefingModal({
   const freeHintsCount = scoringSettings?.freeHintsCount ?? INITIAL_FREE_HINTS;
   return (
     <div
-      className="mx-auto max-w-3xl px-4 py-8 sm:px-6 sm:py-12"
+      className="mx-auto w-full max-w-3xl min-w-0 px-3 py-6 sm:px-6 sm:py-12"
       role="dialog"
       aria-modal="true"
       aria-labelledby="briefing-title"
     >
-      <div className="cyber-panel overflow-hidden rounded-2xl">
-        <div className="border-b border-cyber-border bg-cyber-surfaceElevated/90 px-6 py-5">
+      <div className="cyber-panel w-full min-w-0 overflow-hidden rounded-2xl">
+        <div className="border-b border-cyber-border bg-cyber-surfaceElevated/90 px-4 py-4 sm:px-6 sm:py-5">
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-lg border border-cyber-amber/40 bg-cyber-amber/10 text-cyber-amber">
+            <div className="flex min-w-0 flex-1 items-center gap-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-cyber-amber/40 bg-cyber-amber/10 text-cyber-amber">
                 <ShieldAlert className="h-5 w-5" aria-hidden="true" />
               </div>
-              <div>
-                <h2 id="briefing-title" className="text-xl font-bold text-cyber-text sm:text-2xl">
+              <div className="min-w-0 flex-1">
+                <h2
+                  id="briefing-title"
+                  className="break-words text-lg font-bold text-cyber-text sm:text-2xl"
+                >
                   Mission Briefing &amp; Rules
                 </h2>
-                <p className="text-sm text-cyber-muted">
-                  Operative: <span className="font-mono font-semibold text-cyber-cyan">{playerName}</span>
+                <p className="break-words text-sm text-cyber-muted">
+                  Operative:{' '}
+                  <span className="break-all font-mono font-semibold text-cyber-cyan">
+                    {playerName}
+                  </span>
                 </p>
               </div>
             </div>
-            <span className="rounded-lg border border-cyber-cyan/30 bg-cyber-cyan/10 px-3 py-1 font-mono text-xs font-semibold text-cyber-cyan">
+            <span className="shrink-0 rounded-lg border border-cyber-cyan/30 bg-cyber-cyan/10 px-3 py-1 font-mono text-xs font-semibold text-cyber-cyan">
               TIMER PAUSED
             </span>
           </div>
         </div>
 
-        <div className="space-y-6 p-6 sm:p-8">
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div className="rounded-xl border border-cyber-border bg-cyber-bg/80 p-4">
+        <div className="space-y-5 p-4 sm:space-y-6 sm:p-8">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div className="min-w-0 rounded-xl border border-cyber-border bg-cyber-bg/80 p-4">
               <div className="mb-1.5 flex items-center gap-2 text-sm font-semibold text-cyber-text">
-                <Layers className="h-4 w-4 text-cyber-cyan" aria-hidden="true" />
-                Total Rooms
+                <Layers className="h-4 w-4 shrink-0 text-cyber-cyan" aria-hidden="true" />
+                <span>Total Rooms</span>
               </div>
               <p className="text-sm leading-relaxed text-cyber-muted">
                 <span className="font-mono font-bold text-cyber-text">{TOTAL_ROOMS} Rooms</span>{' '}
@@ -70,10 +76,10 @@ export default function BriefingModal({
               </p>
             </div>
 
-            <div className="rounded-xl border border-cyber-border bg-cyber-bg/80 p-4">
+            <div className="min-w-0 rounded-xl border border-cyber-border bg-cyber-bg/80 p-4">
               <div className="mb-1.5 flex items-center gap-2 text-sm font-semibold text-cyber-text">
-                <Clock className="h-4 w-4 text-cyber-cyan" aria-hidden="true" />
-                Time Limit
+                <Clock className="h-4 w-4 shrink-0 text-cyber-cyan" aria-hidden="true" />
+                <span>Time Limit</span>
               </div>
               <p className="text-sm leading-relaxed text-cyber-muted">
                 You have{' '}
@@ -84,45 +90,45 @@ export default function BriefingModal({
               </p>
             </div>
 
-            <div className="rounded-xl border border-cyber-border bg-cyber-bg/80 p-4">
+            <div className="min-w-0 rounded-xl border border-cyber-border bg-cyber-bg/80 p-4">
               <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-cyber-text">
-                <CheckCircle2 className="h-4 w-4 text-cyber-emerald" aria-hidden="true" />
-                Scoring System
+                <CheckCircle2 className="h-4 w-4 shrink-0 text-cyber-emerald" aria-hidden="true" />
+                <span>Scoring System</span>
               </div>
               <ul className="space-y-1.5 text-sm text-cyber-muted">
-                <li className="flex items-center justify-between">
+                <li className="flex flex-wrap items-center justify-between gap-2">
                   <span>Passing a room</span>
-                  <span className="tabular-nums font-mono font-bold text-cyber-emerald">
+                  <span className="shrink-0 tabular-nums font-mono font-bold text-cyber-emerald">
                     {pointsCorrect >= 0 ? `+${pointsCorrect}` : pointsCorrect} pts
                   </span>
                 </li>
-                <li className="flex items-center justify-between">
+                <li className="flex flex-wrap items-center justify-between gap-2">
                   <span className="flex items-center gap-1.5">
-                    <XCircle className="h-3.5 w-3.5 text-cyber-crimson" aria-hidden="true" />
-                    Every wrong submission
+                    <XCircle className="h-3.5 w-3.5 shrink-0 text-cyber-crimson" aria-hidden="true" />
+                    <span>Every wrong submission</span>
                   </span>
-                  <span className="tabular-nums font-mono font-bold text-cyber-crimson">
+                  <span className="shrink-0 tabular-nums font-mono font-bold text-cyber-crimson">
                     {pointsWrong} pts
                   </span>
                 </li>
               </ul>
             </div>
 
-            <div className="rounded-xl border border-cyber-border bg-cyber-bg/80 p-4">
+            <div className="min-w-0 rounded-xl border border-cyber-border bg-cyber-bg/80 p-4">
               <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-cyber-text">
-                <Lightbulb className="h-4 w-4 text-cyber-amber" aria-hidden="true" />
-                Hints Policy
+                <Lightbulb className="h-4 w-4 shrink-0 text-cyber-amber" aria-hidden="true" />
+                <span>Hints Policy</span>
               </div>
               <ul className="space-y-1.5 text-sm text-cyber-muted">
-                <li className="flex items-center justify-between">
+                <li className="flex flex-wrap items-center justify-between gap-2">
                   <span>Free hints (entire game)</span>
-                  <span className="tabular-nums font-mono font-bold text-cyber-amber">
+                  <span className="shrink-0 tabular-nums font-mono font-bold text-cyber-amber">
                     {freeHintsCount} Free
                   </span>
                 </li>
-                <li className="flex items-center justify-between">
+                <li className="flex flex-wrap items-center justify-between gap-2">
                   <span>Extra hints (max 1 per room)</span>
-                  <span className="tabular-nums font-mono font-bold text-cyber-crimson">
+                  <span className="shrink-0 tabular-nums font-mono font-bold text-cyber-crimson">
                     {pointsPaidHint} pts each
                   </span>
                 </li>
@@ -140,7 +146,7 @@ export default function BriefingModal({
             <button
               type="button"
               onClick={onLeaveSession}
-              className="inline-flex min-h-[44px] items-center justify-center gap-2 rounded-xl border border-cyber-border bg-cyber-surface px-4 py-2.5 text-sm font-medium text-cyber-muted transition-colors hover:border-slate-600 hover:text-cyber-text"
+              className="inline-flex min-h-[44px] w-full items-center justify-center gap-2 rounded-xl border border-cyber-border bg-cyber-surface px-4 py-2.5 text-sm font-medium text-cyber-muted transition-colors hover:border-slate-600 hover:text-cyber-text sm:w-auto"
             >
               <ArrowLeft className="h-4 w-4" aria-hidden="true" />
               Change Name
@@ -149,7 +155,7 @@ export default function BriefingModal({
             <button
               type="button"
               onClick={onStartGame}
-              className="inline-flex min-h-[48px] items-center justify-center gap-2.5 rounded-xl bg-cyber-emerald px-8 py-3 text-base font-bold text-slate-950 shadow-[0_0_24px_rgba(16,185,129,0.28)] transition-all duration-150 hover:bg-emerald-400 active:scale-[0.99]"
+              className="inline-flex min-h-[48px] w-full items-center justify-center gap-2.5 rounded-xl bg-cyber-emerald px-6 py-3 text-base font-bold text-slate-950 shadow-[0_0_24px_rgba(16,185,129,0.28)] transition-all duration-150 hover:bg-emerald-400 active:scale-[0.99] sm:w-auto sm:px-8"
             >
               <Play className="h-4 w-4 fill-current" aria-hidden="true" />
               Start Game

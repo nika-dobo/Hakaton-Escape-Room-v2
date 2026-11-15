@@ -167,7 +167,7 @@ export default function App() {
   const sessionNotice = getSessionTerminatedNotice();
 
   return (
-    <div className="flex min-h-screen flex-col">
+    <div className="flex min-h-screen w-full max-w-full flex-col overflow-x-hidden">
       <Navbar
         activeView={activeView}
         onSelectView={handleSelectView}
@@ -176,7 +176,7 @@ export default function App() {
         onOpenAdminTab={handleOpenAdminTab}
       />
 
-      <div className="flex-1 pb-12">
+      <div className="w-full min-w-0 flex-1 pb-12">
         {activeView === 'admin' ? (
           !adminAuthed ? (
             <AdminAuthGate
