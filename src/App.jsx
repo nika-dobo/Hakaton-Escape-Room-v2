@@ -24,6 +24,7 @@ import {
   markPlayerDisconnected,
   markPlayerTimeout,
   updateGlobalTimerSettings,
+  toggleGlobalTimerPause,
   updateScoringSettings,
   adjustPlayerScore,
   removePlayerSession,
@@ -186,6 +187,7 @@ export default function App() {
             <AdminDashboard
               storeState={storeState}
               onUpdateTimer={updateGlobalTimerSettings}
+              onToggleGlobalPause={toggleGlobalTimerPause}
               onUpdateScoring={updateScoringSettings}
               onAdjustScore={adjustPlayerScore}
               onResetAll={resetAllSessions}
@@ -198,6 +200,7 @@ export default function App() {
           <PublicLeaderboard
             storeState={storeState}
             currentPlayer={currentPlayer}
+            isTimerPaused={Boolean(storeState.settings?.isPaused)}
             onBackToPlayer={() => handleSelectView('player')}
             onStartNewRun={() => {
               handleLeaveSession();
@@ -225,6 +228,7 @@ export default function App() {
           <GameArena
             player={currentPlayer}
             scoringSettings={scoringSettings}
+            isTimerPaused={Boolean(storeState.settings?.isPaused)}
             onSubmitAnswer={submitPlayerAnswer}
             onUseHint={requestRoomHint}
             onSkipRoom={skipPlayerRoom}

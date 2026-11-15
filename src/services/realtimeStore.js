@@ -41,6 +41,8 @@ function createDefaultState() {
       pointsSkip: POINTS_SKIP,
       freeHintsCount: INITIAL_FREE_HINTS,
       adminPasswordHash: DEFAULT_ADMIN_PASSWORD,
+      isPaused: false,
+      pausedAt: null,
       updatedAt: 0,
     },
     lanUrls: [],
@@ -106,6 +108,8 @@ function loadLocalState() {
         freeHintsCount:
           s.freeHintsCount !== undefined ? Number(s.freeHintsCount) : INITIAL_FREE_HINTS,
         adminPasswordHash: s.adminPasswordHash || DEFAULT_ADMIN_PASSWORD,
+        isPaused: Boolean(s.isPaused),
+        pausedAt: s.isPaused ? Number(s.pausedAt) || null : null,
         updatedAt: Number(s.updatedAt) || 0,
       },
       lanUrls: Array.isArray(parsed.lanUrls) ? parsed.lanUrls : [],
@@ -339,7 +343,7 @@ function mergeSinglePlayer(localP, incomingP) {
   };
 }
 
-function mergeIncomingState(incoming) {
+function mergeIncomingState(incoming, options = {}) {
   if (!incoming || typeof incoming !== 'object') return;
   const incomingEpoch = Number(incoming.resetEpoch) || 0;
   const currentEpoch = Number(currentState.resetEpoch) || 0;
@@ -395,6 +399,12 @@ function mergeIncomingState(incoming) {
           s.adminPasswordHash ||
           currentState.settings?.adminPasswordHash ||
           DEFAULT_ADMIN_PASSWORD,
+        isPaused:
+          s.isPaused !== undefined ? Boolean(s.isPaused) : Boolean(currentState.settings?.isPaused),
+        pausedAt:
+          (s.isPaused !== undefined ? Boolean(s.isPaused) : Boolean(currentState.settings?.isPaused))
+            ? Number(s.pausedAt) || currentState.settings?.pausedAt || Date.now()
+            : null,
         updatedAt: Math.max(Number(s.updatedAt) || 0, Number(currentState.settings?.updatedAt) || 0),
       },
       lanUrls: Array.isArray(incoming.lanUrls) ? incoming.lanUrls : currentState.lanUrls || [],
@@ -495,6 +505,16 @@ function mergeIncomingState(incoming) {
         incoming.settings.adminPasswordHash ||
         currentState.settings?.adminPasswordHash ||
         DEFAULT_ADMIN_PASSWORD,
+      isPaused:
+        incoming.settings.isPaused !== undefined
+          ? Boolean(incoming.settings.isPaused)
+          : Boolean(currentState.settings?.isPaused),
+      pausedAt:
+        (incoming.settings.isPaused !== undefined
+          ? Boolean(incoming.settings.isPaused)
+          : Boolean(currentState.settings?.isPaused))
+          ? Number(incoming.settings.pausedAt) || currentState.settings?.pausedAt || Date.now()
+          : null,
       updatedAt: incSettingsUpdated,
     };
 
@@ -508,23 +528,59 @@ function mergeIncomingState(incoming) {
         initialFreeHints: nextSettings.freeHintsCount,
         freeHintsRemaining: nextSettings.freeHintsCount,
       };
+    } else if (activeId && nextPlayers[activeId]?.status === 'active') {
+      const activeP = nextPlayers[activeId];
+      if (nextSettings.isPaused && !activeP.isTimerPaused) {
+        const freezeRem = computeRemainingSeconds(
+          activeP,
+          nextSettings.pausedAt || Date.now(),
+          nextSettings.globalDurationMinutes,
+          false
+        );
+        nextPlayers[activeId] = {
+          ...activeP,
+          isTimerPaused: true,
+          pausedRemainingSeconds: freezeRem,
+          remainingSeconds: freezeRem,
+          endTime: null,
+        };
+      } else if (!nextSettings.isPaused && activeP.isTimerPaused) {
+        const rem = Math.max(
+          0,
+          Number(activeP.pausedRemainingSeconds ?? activeP.remainingSeconds) ||
+            nextSettings.globalDurationMinutes * 60
+        );
+        nextPlayers[activeId] = {
+          ...activeP,
+          isTimerPaused: false,
+          pausedRemainingSeconds: null,
+          remainingSeconds: rem,
+          endTime: Date.now() + rem * 1000,
+        };
+      }
     }
   }
 
   const nextLanUrls = Array.isArray(incoming.lanUrls)
     ? incoming.lanUrls
     : currentState.lanUrls || [];
-  const nextPublicLeaderboard = Array.isArray(incoming.publicLeaderboard)
-    ? incoming.publicLeaderboard
-    : currentState.publicLeaderboard || [];
+  const incServerTime = Number(incoming.serverTime) || 0;
+  const curServerTime = Number(currentState.serverTime) || 0;
+  const acceptLeaderboard =
+    incoming.fromServer || incServerTime >= curServerTime || !currentState.publicLeaderboard?.length;
+  const nextPublicLeaderboard =
+    acceptLeaderboard && Array.isArray(incoming.publicLeaderboard)
+      ? incoming.publicLeaderboard
+      : currentState.publicLeaderboard || [];
   const nextPlayerCount =
-    incoming.playerCount !== undefined
+    acceptLeaderboard && incoming.playerCount !== undefined
       ? Number(incoming.playerCount)
-      : Object.keys(nextPlayers).length;
+      : currentState.playerCount || Object.keys(nextPlayers).length;
   const nextActiveCount =
-    incoming.activeCount !== undefined
+    acceptLeaderboard && incoming.activeCount !== undefined
       ? Number(incoming.activeCount)
-      : Object.values(nextPlayers).filter((p) => p.status === 'active').length;
+      : currentState.activeCount ||
+        Object.values(nextPlayers).filter((p) => p.status === 'active').length;
 
   const prevJson = JSON.stringify({
     p: currentState.players,
@@ -556,10 +612,13 @@ function mergeIncomingState(incoming) {
       activeCount: nextActiveCount,
       settings: nextSettings,
       lanUrls: nextLanUrls,
+      serverTime: Math.max(curServerTime, incServerTime),
       revision: Math.max(currentState.revision, Number(incoming.revision) || 1) + 1,
       resetEpoch: Math.max(currentEpoch, incomingEpoch),
     };
-    saveLocalState(currentState);
+    if (!options.skipLocalSave) {
+      saveLocalState(currentState);
+    }
     emitChange();
   }
 }
@@ -662,9 +721,9 @@ export function initRealtimeStore() {
     channel = new BroadcastChannel(CHANNEL_NAME);
     channel.onmessage = (event) => {
       if (event.data?.type === 'STATE_SYNC' && event.data.state) {
-        mergeIncomingState(event.data.state);
+        mergeIncomingState(event.data.state, { skipLocalSave: true });
       } else if (event.data?.type === 'FORCE_REPLACE' && event.data.state) {
-        mergeIncomingState(event.data.state);
+        mergeIncomingState(event.data.state, { skipLocalSave: true });
       }
     };
   }
@@ -673,7 +732,7 @@ export function initRealtimeStore() {
     if (event.key === STORAGE_KEY && event.newValue) {
       try {
         const parsed = JSON.parse(event.newValue);
-        mergeIncomingState(parsed);
+        mergeIncomingState(parsed, { skipLocalSave: true });
       } catch {
         // Ignore malformed JSON
       }
@@ -843,7 +902,8 @@ function commitPlayer(updatedPlayer, options = {}) {
 export function computeRemainingSeconds(
   player,
   now = Date.now(),
-  fallbackMinutes = DEFAULT_DURATION_MINUTES
+  fallbackMinutes = DEFAULT_DURATION_MINUTES,
+  isGloballyPaused = Boolean(currentState?.settings?.isPaused)
 ) {
   if (!player) return fallbackMinutes * 60;
   if (player.status === 'briefing') {
@@ -852,11 +912,22 @@ export function computeRemainingSeconds(
   if (player.status === 'completed' || player.status === 'timeout') {
     return Math.max(0, Number(player.remainingSeconds) || 0);
   }
-  if (player.status === 'left' || player.status === 'disconnected') {
+  if (
+    player.status === 'left' ||
+    player.status === 'disconnected' ||
+    player.isTimerPaused ||
+    isGloballyPaused
+  ) {
+    if (player.pausedRemainingSeconds !== null && player.pausedRemainingSeconds !== undefined) {
+      return Math.max(0, Number(player.pausedRemainingSeconds) || 0);
+    }
+    if (player.endTime) {
+      const freezeAt = currentState?.settings?.pausedAt || now;
+      return Math.max(0, Math.ceil((player.endTime - freezeAt) / 1000));
+    }
     return Math.max(
       0,
-      Number(player.pausedRemainingSeconds ?? player.remainingSeconds) ||
-        (player.allocatedMinutes || fallbackMinutes) * 60
+      Number(player.remainingSeconds) || (player.allocatedMinutes || fallbackMinutes) * 60
     );
   }
   if (!player.endTime) {
@@ -969,16 +1040,18 @@ export function registerPlayer(rawName) {
       1,
       Number(existing.pausedRemainingSeconds ?? existing.remainingSeconds) || effectiveMins * 60
     );
+    const globallyPaused = Boolean(currentState.settings?.isPaused);
 
     const resumed = {
       ...existing,
       name,
       status: restoredStatus,
       isDisconnected: false,
+      isTimerPaused: hadStarted ? globallyPaused : false,
       allocatedMinutes: effectiveMins,
       startTime: hadStarted ? existing.startTime || now : null,
-      endTime: hadStarted ? now + pausedSec * 1000 : null,
-      pausedRemainingSeconds: null,
+      endTime: hadStarted && !globallyPaused ? now + pausedSec * 1000 : null,
+      pausedRemainingSeconds: hadStarted && globallyPaused ? pausedSec : null,
       remainingSeconds: restoredStatus === 'briefing' ? effectiveMins * 60 : pausedSec,
       initialFreeHints:
         restoredStatus === 'briefing'
@@ -1050,6 +1123,7 @@ export function startPlayerGame(playerId) {
   const alreadyStarted =
     Boolean(existing.startTime) &&
     ((Number(existing.currentRoom) || 1) > 1 || (Number(existing.completedRooms) || 0) > 0);
+  const globallyPaused = Boolean(currentState.settings?.isPaused);
 
   if (alreadyStarted) {
     const remSec = Math.max(
@@ -1059,11 +1133,12 @@ export function startPlayerGame(playerId) {
     const updated = {
       ...existing,
       status: 'active',
-      endTime: now + remSec * 1000,
+      isTimerPaused: globallyPaused,
+      endTime: globallyPaused ? null : now + remSec * 1000,
       remainingSeconds: remSec,
-      pausedRemainingSeconds: null,
+      pausedRemainingSeconds: globallyPaused ? remSec : null,
       lastUpdated: now,
-      lastEvent: 'Resumed Challenge',
+      lastEvent: globallyPaused ? 'Resumed Challenge (Timer Paused)' : 'Resumed Challenge',
     };
     return commitPlayer(updated, { isRejoin: true });
   }
@@ -1072,15 +1147,16 @@ export function startPlayerGame(playerId) {
   const updated = {
     ...existing,
     status: 'active',
+    isTimerPaused: globallyPaused,
     allocatedMinutes: mins,
     initialFreeHints: scoring.freeHintsCount,
     freeHintsRemaining: scoring.freeHintsCount,
     startTime: now,
-    endTime: now + durationMs,
-    pausedRemainingSeconds: null,
+    endTime: globallyPaused ? null : now + durationMs,
+    pausedRemainingSeconds: globallyPaused ? mins * 60 : null,
     remainingSeconds: mins * 60,
     lastUpdated: now,
-    lastEvent: 'Started Challenge',
+    lastEvent: globallyPaused ? 'Started Challenge (Timer Paused)' : 'Started Challenge',
   };
 
   return commitPlayer(updated);
@@ -1439,11 +1515,13 @@ export function adjustPlayerScore(playerId, delta) {
 export function markPlayerTimeout(playerId) {
   const existing = currentState.players[playerId];
   if (!existing || existing.status !== 'active') return existing;
+  if (currentState.settings?.isPaused || existing.isTimerPaused) return existing;
 
   const now = Date.now();
   const updated = {
     ...existing,
     status: 'timeout',
+    isTimerPaused: false,
     remainingSeconds: 0,
     lastUpdated: now,
     lastEvent: 'Timer Expired',
@@ -1458,12 +1536,30 @@ export function updateGlobalTimerSettings(minutes, applyToActive = true) {
     Math.min(240, Math.round(Number(minutes) || DEFAULT_DURATION_MINUTES))
   );
   const now = Date.now();
+  const globallyPaused = Boolean(currentState.settings?.isPaused);
   const nextPlayers = { ...currentState.players };
 
   if (applyToActive) {
     const durationMs = clamped * 60 * 1000;
     for (const [id, p] of Object.entries(nextPlayers)) {
-      if (p.status === 'active' && p.startTime) {
+      if (p.status === 'active' && (globallyPaused || p.isTimerPaused)) {
+        const oldRem = computeRemainingSeconds(p, now, p.allocatedMinutes, true);
+        const oldTotal = (Number(p.allocatedMinutes) || DEFAULT_DURATION_MINUTES) * 60;
+        const elapsed = Math.max(0, oldTotal - oldRem);
+        const newRemaining = Math.max(0, clamped * 60 - elapsed);
+        nextPlayers[id] = {
+          ...p,
+          allocatedMinutes: clamped,
+          endTime: null,
+          isTimerPaused: true,
+          pausedRemainingSeconds: newRemaining,
+          remainingSeconds: newRemaining,
+          status: newRemaining === 0 ? 'timeout' : 'active',
+          clientSeq: (Number(p.clientSeq) || 0) + 1,
+          lastUpdated: now,
+          lastEvent: `Timer Set to ${clamped}m (Paused)`,
+        };
+      } else if (p.status === 'active' && p.startTime) {
         const newEndTime = p.startTime + durationMs;
         const newRemaining = Math.max(0, Math.ceil((newEndTime - now) / 1000));
         nextPlayers[id] = {
@@ -1522,6 +1618,88 @@ export function updateGlobalTimerSettings(minutes, applyToActive = true) {
     applyToActive,
   });
   pushFullStateToCloudDb(nextState);
+}
+
+export function toggleGlobalTimerPause(forcePaused) {
+  const now = Date.now();
+  const nextPaused =
+    typeof forcePaused === 'boolean' ? forcePaused : !Boolean(currentState.settings?.isPaused);
+  const fallbackMins = Number(currentState.settings?.globalDurationMinutes) || DEFAULT_DURATION_MINUTES;
+  const nextPlayers = { ...currentState.players };
+
+  for (const [id, p] of Object.entries(nextPlayers)) {
+    if (p.status !== 'active') continue;
+    if (nextPaused) {
+      const rem = computeRemainingSeconds(p, now, p.allocatedMinutes || fallbackMins, false);
+      nextPlayers[id] = {
+        ...p,
+        isTimerPaused: true,
+        pausedRemainingSeconds: rem,
+        remainingSeconds: rem,
+        endTime: null,
+        clientSeq: (Number(p.clientSeq) || 0) + 1,
+        lastUpdated: now,
+        lastEvent: 'Timer Paused by Admin',
+      };
+    } else {
+      const rawRem = p.pausedRemainingSeconds ?? p.remainingSeconds;
+      const rem =
+        rawRem !== undefined && rawRem !== null
+          ? Math.max(0, Number(rawRem) || 0)
+          : (Number(p.allocatedMinutes) || fallbackMins) * 60;
+      if (rem <= 0) {
+        nextPlayers[id] = {
+          ...p,
+          status: 'timeout',
+          isTimerPaused: false,
+          endTime: now,
+          pausedRemainingSeconds: 0,
+          remainingSeconds: 0,
+          clientSeq: (Number(p.clientSeq) || 0) + 1,
+          lastUpdated: now,
+          lastEvent: 'Timer Expired',
+        };
+      } else {
+        nextPlayers[id] = {
+          ...p,
+          isTimerPaused: false,
+          endTime: now + rem * 1000,
+          pausedRemainingSeconds: null,
+          remainingSeconds: rem,
+          clientSeq: (Number(p.clientSeq) || 0) + 1,
+          lastUpdated: now,
+          lastEvent: 'Timer Resumed by Admin',
+        };
+      }
+    }
+  }
+
+  const nextSettings = {
+    ...currentState.settings,
+    isPaused: nextPaused,
+    pausedAt: nextPaused ? now : null,
+    updatedAt: now,
+  };
+
+  const nextState = {
+    ...currentState,
+    players: nextPlayers,
+    settings: nextSettings,
+    revision: currentState.revision + 1,
+  };
+
+  lastMutationAt = now;
+  currentState = nextState;
+  saveLocalState(nextState);
+  broadcastLocal(nextState);
+  emitChange();
+  postServerAction({
+    type: 'TOGGLE_GLOBAL_PAUSE',
+    isPaused: nextPaused,
+    pausedAt: nextSettings.pausedAt,
+  });
+  pushFullStateToCloudDb(nextState);
+  return nextPaused;
 }
 
 export function removePlayerSession(playerId) {
@@ -1737,10 +1915,11 @@ export function seedDemoPlayers() {
 export function getSortedPlayers(state, now = Date.now()) {
   const players = Object.values(deduplicatePlayersMap(state?.players || {}));
   const fallbackMins = state?.settings?.globalDurationMinutes || DEFAULT_DURATION_MINUTES;
+  const isGloballyPaused = Boolean(state?.settings?.isPaused);
 
   return players
     .map((p) => {
-      const liveRemaining = computeRemainingSeconds(p, now, fallbackMins);
+      const liveRemaining = computeRemainingSeconds(p, now, fallbackMins, isGloballyPaused);
       let effectiveStatus = p.status === 'active' && liveRemaining === 0 ? 'timeout' : p.status;
       const isDemo = String(p.id || '').startsWith('demo_');
       const lastSeen = p.lastHeartbeat || p.lastUpdated || now;
@@ -1753,6 +1932,7 @@ export function getSortedPlayers(state, now = Date.now()) {
       }
       return {
         ...p,
+        isTimerPaused: Boolean(isGloballyPaused || p.isTimerPaused),
         liveRemainingSeconds: liveRemaining,
         effectiveStatus,
       };

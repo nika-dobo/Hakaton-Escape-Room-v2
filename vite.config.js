@@ -35,6 +35,8 @@ function createInitialState() {
       pointsSkip: 0,
       freeHintsCount: 3,
       adminPasswordHash: 'admin123',
+      isPaused: false,
+      pausedAt: null,
       updatedAt: 0,
     },
     revision: 1,
@@ -61,6 +63,8 @@ function loadPersistedState() {
             pointsSkip: s.pointsSkip !== undefined ? Number(s.pointsSkip) : 0,
             freeHintsCount: s.freeHintsCount !== undefined ? Number(s.freeHintsCount) : 3,
             adminPasswordHash: s.adminPasswordHash || 'admin123',
+            isPaused: Boolean(s.isPaused),
+            pausedAt: s.isPaused ? Number(s.pausedAt) || null : null,
             updatedAt: Number(s.updatedAt) || 0,
           },
           revision: Number(parsed.revision) || 1,
@@ -166,13 +170,31 @@ function mergePlayerOnServer(existing, incoming, now = Date.now()) {
 function buildPublicLeaderboard(state, now = Date.now()) {
   const players = Object.values(state?.players || {});
   const fallbackMins = state?.settings?.globalDurationMinutes || 60;
+  const isGloballyPaused = Boolean(state?.settings?.isPaused);
   return players
     .map((p) => {
       let liveRemaining = fallbackMins * 60;
       if (p.status === 'briefing') {
         liveRemaining = (p.allocatedMinutes || fallbackMins) * 60;
-      } else if (p.status === 'completed' || p.status === 'timeout' || p.status === 'left') {
-        liveRemaining = Math.max(0, Number(p.pausedRemainingSeconds ?? p.remainingSeconds) || 0);
+      } else if (
+        p.status === 'completed' ||
+        p.status === 'timeout' ||
+        p.status === 'left' ||
+        p.status === 'disconnected' ||
+        p.isTimerPaused ||
+        isGloballyPaused
+      ) {
+        if (p.pausedRemainingSeconds !== null && p.pausedRemainingSeconds !== undefined) {
+          liveRemaining = Math.max(0, Number(p.pausedRemainingSeconds) || 0);
+        } else if (p.endTime) {
+          const freezeAt = state?.settings?.pausedAt || now;
+          liveRemaining = Math.max(0, Math.ceil((p.endTime - freezeAt) / 1000));
+        } else {
+          liveRemaining = Math.max(
+            0,
+            Number(p.remainingSeconds) || (p.allocatedMinutes || fallbackMins) * 60
+          );
+        }
       } else if (p.endTime) {
         liveRemaining = Math.max(0, Math.ceil((p.endTime - now) / 1000));
       }
@@ -195,6 +217,7 @@ function buildPublicLeaderboard(state, now = Date.now()) {
         hintsUsed: Number(p.hintsUsed) || 0,
         wrongAttempts: Number(p.wrongAttempts) || 0,
         liveRemainingSeconds: liveRemaining,
+        isTimerPaused: Boolean(isGloballyPaused || p.isTimerPaused),
         effectiveStatus,
       };
     })
@@ -306,6 +329,16 @@ function applyClientSyncMeta(state, syncMeta) {
         incSettings.freeHintsCount !== undefined
           ? Number(incSettings.freeHintsCount)
           : next.settings.freeHintsCount,
+      isPaused:
+        incSettings.isPaused !== undefined
+          ? Boolean(incSettings.isPaused)
+          : Boolean(next.settings.isPaused),
+      pausedAt:
+        (incSettings.isPaused !== undefined
+          ? Boolean(incSettings.isPaused)
+          : Boolean(next.settings.isPaused))
+          ? Number(incSettings.pausedAt) || next.settings.pausedAt || Date.now()
+          : null,
       updatedAt: Number(incSettings.updatedAt),
     };
     changed = true;
@@ -516,15 +549,17 @@ function escapeStateApiPlugin() {
                       existingByName.pausedRemainingSeconds ?? existingByName.remainingSeconds
                     ) || effectiveMins * 60
                   );
+                  const globallyPaused = Boolean(state.settings?.isPaused);
 
                   const resumed = {
                     ...existingByName,
                     status: restoredStatus,
                     isDisconnected: false,
+                    isTimerPaused: hadStarted ? globallyPaused : false,
                     allocatedMinutes: effectiveMins,
                     startTime: hadStarted ? existingByName.startTime || now : null,
-                    endTime: hadStarted ? now + pausedSec * 1000 : null,
-                    pausedRemainingSeconds: null,
+                    endTime: hadStarted && !globallyPaused ? now + pausedSec * 1000 : null,
+                    pausedRemainingSeconds: hadStarted && globallyPaused ? pausedSec : null,
                     remainingSeconds:
                       restoredStatus === 'briefing' ? effectiveMins * 60 : pausedSec,
                     lastHeartbeat: now,
@@ -587,10 +622,13 @@ function escapeStateApiPlugin() {
                   (!existing || existing.status === 'briefing') &&
                   !action.isRejoin
                 ) {
+                  const globallyPaused = Boolean(state.settings?.isPaused);
                   nextPlayer.allocatedMinutes = configuredMins;
                   const startTs = nextPlayer.startTime || now;
                   nextPlayer.startTime = startTs;
-                  nextPlayer.endTime = startTs + configuredMins * 60 * 1000;
+                  nextPlayer.isTimerPaused = globallyPaused;
+                  nextPlayer.endTime = globallyPaused ? null : startTs + configuredMins * 60 * 1000;
+                  nextPlayer.pausedRemainingSeconds = globallyPaused ? configuredMins * 60 : null;
                   nextPlayer.remainingSeconds = configuredMins * 60;
                   nextPlayer.initialFreeHints = configuredFreeHints;
                   if (existing?.status === 'briefing') {
@@ -634,9 +672,16 @@ function escapeStateApiPlugin() {
                   delete state.players[action.playerId];
                 } else {
                   const fallbackMins = state.settings?.globalDurationMinutes || 60;
-                  const rem = cur.endTime
-                    ? Math.max(0, Math.ceil((cur.endTime - now) / 1000))
-                    : cur.remainingSeconds || fallbackMins * 60;
+                  const rem =
+                    cur.isTimerPaused || state.settings?.isPaused
+                      ? Math.max(
+                          0,
+                          Number(cur.pausedRemainingSeconds ?? cur.remainingSeconds) ||
+                            (cur.allocatedMinutes || fallbackMins) * 60
+                        )
+                      : cur.endTime
+                      ? Math.max(0, Math.ceil((cur.endTime - now) / 1000))
+                      : Number(cur.remainingSeconds ?? fallbackMins * 60);
                   state.players[action.playerId] = {
                     ...cur,
                     status: action.reason === 'left' ? 'left' : 'disconnected',
@@ -699,7 +744,36 @@ function escapeStateApiPlugin() {
                 );
                 const updatedFreeRemaining = Math.max(0, freeHintsCount - usedFree);
 
-                if (action.applyToActive && p.status === 'active' && p.startTime) {
+                if (
+                  action.applyToActive &&
+                  p.status === 'active' &&
+                  (state.settings?.isPaused || p.isTimerPaused)
+                ) {
+                  const oldRem =
+                    p.pausedRemainingSeconds !== null && p.pausedRemainingSeconds !== undefined
+                      ? Math.max(0, Number(p.pausedRemainingSeconds) || 0)
+                      : p.endTime
+                      ? Math.max(
+                          0,
+                          Math.ceil((p.endTime - (state.settings?.pausedAt || now)) / 1000)
+                        )
+                      : Math.max(0, Number(p.remainingSeconds) || (p.allocatedMinutes || 60) * 60);
+                  const oldTotal = (Number(p.allocatedMinutes) || 60) * 60;
+                  const elapsed = Math.max(0, oldTotal - oldRem);
+                  const newRemaining = Math.max(0, mins * 60 - elapsed);
+                  state.players[id] = {
+                    ...p,
+                    allocatedMinutes: mins,
+                    endTime: null,
+                    isTimerPaused: true,
+                    pausedRemainingSeconds: newRemaining,
+                    remainingSeconds: newRemaining,
+                    initialFreeHints: freeHintsCount,
+                    freeHintsRemaining: updatedFreeRemaining,
+                    status: newRemaining === 0 ? 'timeout' : 'active',
+                    lastUpdated: now,
+                  };
+                } else if (action.applyToActive && p.status === 'active' && p.startTime) {
                   const newEndTime = p.startTime + mins * 60 * 1000;
                   const newRemaining = Math.max(0, Math.ceil((newEndTime - now) / 1000));
                   state.players[id] = {
@@ -727,6 +801,74 @@ function escapeStateApiPlugin() {
                     initialFreeHints: freeHintsCount,
                     freeHintsRemaining: updatedFreeRemaining,
                   };
+                }
+              }
+            } else if (action.type === 'TOGGLE_GLOBAL_PAUSE') {
+              const nextPaused =
+                typeof action.isPaused === 'boolean'
+                  ? action.isPaused
+                  : !Boolean(state.settings?.isPaused);
+              const fallbackMins = Number(state.settings?.globalDurationMinutes) || 60;
+              const pauseTs = nextPaused ? Number(action.pausedAt) || now : null;
+              state.settings = {
+                ...state.settings,
+                isPaused: nextPaused,
+                pausedAt: pauseTs,
+                updatedAt: Math.max(now, Number(action._sync?.settings?.updatedAt) || 0),
+              };
+              for (const id of Object.keys(state.players)) {
+                const p = state.players[id];
+                if (p.status !== 'active') continue;
+                if (nextPaused) {
+                  const rem =
+                    p.pausedRemainingSeconds !== null && p.pausedRemainingSeconds !== undefined
+                      ? Math.max(0, Number(p.pausedRemainingSeconds) || 0)
+                      : p.endTime
+                      ? Math.max(0, Math.ceil((p.endTime - now) / 1000))
+                      : Math.max(
+                          0,
+                          Number(p.remainingSeconds) || (p.allocatedMinutes || fallbackMins) * 60
+                        );
+                  state.players[id] = {
+                    ...p,
+                    isTimerPaused: true,
+                    endTime: null,
+                    pausedRemainingSeconds: rem,
+                    remainingSeconds: rem,
+                    clientSeq: (Number(p.clientSeq) || 0) + 1,
+                    lastUpdated: now,
+                    lastEvent: 'Timer Paused by Admin',
+                  };
+                } else {
+                  const rawRem = p.pausedRemainingSeconds ?? p.remainingSeconds;
+                  const rem =
+                    rawRem !== undefined && rawRem !== null
+                      ? Math.max(0, Number(rawRem) || 0)
+                      : (Number(p.allocatedMinutes) || fallbackMins) * 60;
+                  if (rem <= 0) {
+                    state.players[id] = {
+                      ...p,
+                      status: 'timeout',
+                      isTimerPaused: false,
+                      endTime: now,
+                      pausedRemainingSeconds: 0,
+                      remainingSeconds: 0,
+                      clientSeq: (Number(p.clientSeq) || 0) + 1,
+                      lastUpdated: now,
+                      lastEvent: 'Timer Expired',
+                    };
+                  } else {
+                    state.players[id] = {
+                      ...p,
+                      isTimerPaused: false,
+                      endTime: now + rem * 1000,
+                      pausedRemainingSeconds: null,
+                      remainingSeconds: rem,
+                      clientSeq: (Number(p.clientSeq) || 0) + 1,
+                      lastUpdated: now,
+                      lastEvent: 'Timer Resumed by Admin',
+                    };
+                  }
                 }
               }
             } else if (action.type === 'UPDATE_ADMIN_PASSWORD' && action.newPassword) {

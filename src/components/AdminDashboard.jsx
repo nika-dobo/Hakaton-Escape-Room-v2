@@ -16,6 +16,8 @@ import {
   Check,
   KeyRound,
   Cloud,
+  Pause,
+  Play,
 } from 'lucide-react';
 import { TOTAL_ROOMS, getRoomById } from '../data/rooms';
 import {
@@ -77,6 +79,7 @@ function getStatusBadge(status) {
 export default function AdminDashboard({
   storeState,
   onUpdateTimer,
+  onToggleGlobalPause,
   onUpdateScoring,
   onAdjustScore,
   onResetAll,
@@ -85,6 +88,7 @@ export default function AdminDashboard({
   onLockAdmin,
 }) {
   const scoring = getScoringSettings(storeState);
+  const isGlobalPaused = Boolean(storeState.settings?.isPaused);
   const [now, setNow] = useState(() => Date.now());
   const [durationInput, setDurationInput] = useState(
     String(storeState.settings?.globalDurationMinutes || 60)
@@ -129,12 +133,6 @@ export default function AdminDashboard({
     storeState.settings?.freeHintsCount,
   ]);
 
-  useEffect(() => {
-    if (!confirmReset) return undefined;
-    const t = window.setTimeout(() => setConfirmReset(false), 4000);
-    return () => window.clearTimeout(t);
-  }, [confirmReset]);
-
   const showNotice = (msg) => {
     setAdminToast(msg);
     window.setTimeout(() => setAdminToast(''), 2800);
@@ -155,12 +153,18 @@ export default function AdminDashboard({
     showNotice(`Global timer updated to ${mins} minutes.`);
   };
 
-  const handleResetClick = () => {
-    if (!confirmReset) {
-      setConfirmReset(true);
-      return;
+  const handleToggleGlobalPause = () => {
+    if (!onToggleGlobalPause) return;
+    const pausedNow = onToggleGlobalPause();
+    showNotice(
+      pausedNow ? 'All active player timers paused.' : 'All active player timers resumed.'
+    );
+  };
+
+  const handleConfirmResetAll = () => {
+    if (onResetAll) {
+      onResetAll();
     }
-    onResetAll();
     setConfirmReset(false);
     showNotice('All player sessions cleared across all devices.');
   };
@@ -424,9 +428,15 @@ export default function AdminDashboard({
       >
         <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
           <form onSubmit={handleApplyTimer} className="space-y-3">
-            <div className="flex items-center gap-2 text-sm font-semibold text-cyber-text">
+            <div className="flex flex-wrap items-center gap-2 text-sm font-semibold text-cyber-text">
               <Sliders className="h-4 w-4 text-cyber-cyan" aria-hidden="true" />
               Global Timer Configuration
+              {isGlobalPaused ? (
+                <span className="inline-flex items-center gap-1 rounded-full border border-cyber-amber/50 bg-cyber-amber/15 px-2.5 py-0.5 font-mono text-[11px] font-bold text-cyber-amber">
+                  <Pause className="h-3 w-3" aria-hidden="true" />
+                  TIMERS PAUSED
+                </span>
+              ) : null}
             </div>
 
             <div className="flex flex-wrap items-center gap-2.5">
@@ -485,6 +495,29 @@ export default function AdminDashboard({
           <div className="flex flex-wrap items-center gap-2.5">
             <button
               type="button"
+              onClick={handleToggleGlobalPause}
+              aria-pressed={isGlobalPaused}
+              className={`inline-flex min-h-[44px] items-center gap-2 rounded-xl border px-4 py-2.5 text-xs font-bold transition-colors ${
+                isGlobalPaused
+                  ? 'border-cyber-emerald/60 bg-cyber-emerald text-slate-950 hover:bg-emerald-400'
+                  : 'border-cyber-amber/50 bg-cyber-amber/15 text-cyber-amber hover:bg-cyber-amber/25'
+              }`}
+            >
+              {isGlobalPaused ? (
+                <>
+                  <Play className="h-4 w-4" aria-hidden="true" />
+                  Resume All Timers
+                </>
+              ) : (
+                <>
+                  <Pause className="h-4 w-4" aria-hidden="true" />
+                  Pause All Timers
+                </>
+              )}
+            </button>
+
+            <button
+              type="button"
               onClick={() => {
                 onSeedDemo();
                 showNotice('Demo players added to live leaderboard.');
@@ -497,15 +530,11 @@ export default function AdminDashboard({
 
             <button
               type="button"
-              onClick={handleResetClick}
-              className={`inline-flex min-h-[44px] items-center gap-2 rounded-xl border px-4 py-2.5 text-xs font-bold transition-colors ${
-                confirmReset
-                  ? 'border-cyber-crimson bg-cyber-crimson text-white'
-                  : 'border-cyber-crimson/50 bg-cyber-crimson/10 text-cyber-crimson hover:bg-cyber-crimson/20'
-              }`}
+              onClick={() => setConfirmReset(true)}
+              className="inline-flex min-h-[44px] items-center gap-2 rounded-xl border border-cyber-crimson/50 bg-cyber-crimson/10 px-4 py-2.5 text-xs font-bold text-cyber-crimson transition-colors hover:bg-cyber-crimson/20"
             >
               <RotateCcw className="h-4 w-4" aria-hidden="true" />
-              {confirmReset ? 'Confirm Reset All Sessions' : 'Reset / Clear Sessions'}
+              Reset / Clear Sessions
             </button>
           </div>
         </div>
@@ -689,8 +718,13 @@ export default function AdminDashboard({
                     ((player.completedRooms || 0) / TOTAL_ROOMS) * 100
                   );
                   const rank = index + 1;
+                  const playerPaused =
+                    (isGlobalPaused || player.isTimerPaused) &&
+                    player.effectiveStatus === 'active';
                   const urgentTimer =
-                    player.effectiveStatus === 'active' && player.liveRemainingSeconds <= 60;
+                    !playerPaused &&
+                    player.effectiveStatus === 'active' &&
+                    player.liveRemainingSeconds <= 60;
                   const safeAriaName = formatSafeAriaName(player.name);
                   const playerTotalFree =
                     player.initialFreeHints ?? scoring.freeHintsCount;
@@ -749,17 +783,26 @@ export default function AdminDashboard({
                       </td>
 
                       <td className="px-2 py-2.5">
-                        <span
-                          className={`tabular-nums font-mono text-xs font-bold ${
-                            urgentTimer
-                              ? 'animate-pulse text-cyber-crimson'
-                              : player.effectiveStatus === 'timeout'
-                              ? 'text-cyber-crimson'
-                              : 'text-cyber-text'
-                          }`}
-                        >
-                          {formatSecondsMMSS(player.liveRemainingSeconds)}
-                        </span>
+                        <div className="flex items-center gap-1.5">
+                          <span
+                            className={`tabular-nums font-mono text-xs font-bold ${
+                              playerPaused
+                                ? 'text-cyber-amber'
+                                : urgentTimer
+                                ? 'animate-pulse text-cyber-crimson'
+                                : player.effectiveStatus === 'timeout'
+                                ? 'text-cyber-crimson'
+                                : 'text-cyber-text'
+                            }`}
+                          >
+                            {formatSecondsMMSS(player.liveRemainingSeconds)}
+                          </span>
+                          {playerPaused ? (
+                            <span className="rounded border border-cyber-amber/40 bg-cyber-amber/10 px-1 py-0.5 font-mono text-[9px] font-bold text-cyber-amber">
+                              PAUSED
+                            </span>
+                          ) : null}
+                        </div>
                       </td>
 
                       <td className="px-2 py-2.5">
@@ -916,6 +959,49 @@ export default function AdminDashboard({
           </div>
         )}
       </section>
+
+      {confirmReset ? (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="reset-confirm-title"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-cyber-bg/80 p-4 backdrop-blur-sm"
+        >
+          <div className="cyber-panel w-full max-w-md rounded-2xl border border-cyber-crimson/50 p-6 shadow-2xl">
+            <div className="flex items-start gap-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-cyber-crimson/40 bg-cyber-crimson/10 text-cyber-crimson">
+                <RotateCcw className="h-5 w-5" aria-hidden="true" />
+              </div>
+              <div>
+                <h2 id="reset-confirm-title" className="text-base font-bold text-cyber-text">
+                  Reset All Player Sessions?
+                </h2>
+                <p className="mt-1 text-xs leading-relaxed text-cyber-muted">
+                  This will permanently delete all {sortedPlayers.length} player session
+                  {sortedPlayers.length === 1 ? '' : 's'} (active, paused, completed, and demo
+                  records) across all connected devices.
+                </p>
+              </div>
+            </div>
+            <div className="mt-5 flex items-center justify-end gap-2.5">
+              <button
+                type="button"
+                onClick={() => setConfirmReset(false)}
+                className="min-h-[40px] rounded-lg border border-cyber-border bg-cyber-surface px-4 py-2 text-xs font-semibold text-cyber-text transition-colors hover:border-slate-500"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmResetAll}
+                className="min-h-[40px] rounded-lg bg-cyber-crimson px-4 py-2 text-xs font-bold text-white transition-colors hover:bg-red-500"
+              >
+                Confirm Reset All Sessions
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

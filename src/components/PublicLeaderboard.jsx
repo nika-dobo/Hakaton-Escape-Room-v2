@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Trophy, Users, ArrowLeft, RotateCcw, Clock } from 'lucide-react';
+import { Trophy, Users, ArrowLeft, RotateCcw, Clock, Pause } from 'lucide-react';
 import { TOTAL_ROOMS } from '../data/rooms';
 import { formatSecondsMMSS, getSortedPlayers } from '../services/realtimeStore';
 
@@ -41,6 +41,7 @@ function getStatusPill(status) {
 export default function PublicLeaderboard({
   storeState,
   currentPlayer,
+  isTimerPaused = false,
   onBackToPlayer,
   onStartNewRun,
 }) {
@@ -105,11 +106,19 @@ export default function PublicLeaderboard({
         aria-label="Public player rankings"
         className="cyber-panel overflow-hidden rounded-2xl"
       >
-        <div className="flex items-center justify-between border-b border-cyber-border px-5 py-4">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-cyber-border px-5 py-4">
           <h2 className="text-base font-bold text-cyber-text">
             Operative Standings ({entries.length})
           </h2>
-          <span className="font-mono text-xs text-cyber-emerald">LIVE AUTO-REFRESH</span>
+          <div className="flex items-center gap-2">
+            {isTimerPaused ? (
+              <span className="inline-flex items-center gap-1 rounded-full border border-cyber-amber/50 bg-cyber-amber/15 px-2.5 py-0.5 font-mono text-[11px] font-bold text-cyber-amber">
+                <Pause className="h-3 w-3" aria-hidden="true" />
+                TIMERS PAUSED
+              </span>
+            ) : null}
+            <span className="font-mono text-xs text-cyber-emerald">LIVE AUTO-REFRESH</span>
+          </div>
         </div>
 
         {entries.length === 0 ? (
@@ -203,9 +212,20 @@ export default function PublicLeaderboard({
                       </td>
 
                       <td className="px-4 py-3">
-                        <span className="tabular-nums inline-flex items-center gap-1 font-mono text-xs font-semibold text-cyber-text">
+                        <span
+                          className={`tabular-nums inline-flex items-center gap-1 font-mono text-xs font-semibold ${
+                            (isTimerPaused || entry.isTimerPaused) &&
+                            (entry.effectiveStatus || entry.status) === 'active'
+                              ? 'text-cyber-amber'
+                              : 'text-cyber-text'
+                          }`}
+                        >
                           <Clock className="h-3 w-3 text-cyber-muted" aria-hidden="true" />
                           {formatSecondsMMSS(entry.liveRemainingSeconds ?? entry.remainingSeconds)}
+                          {(isTimerPaused || entry.isTimerPaused) &&
+                          (entry.effectiveStatus || entry.status) === 'active'
+                            ? ' (Paused)'
+                            : ''}
                         </span>
                       </td>
 

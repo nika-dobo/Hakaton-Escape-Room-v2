@@ -12,6 +12,7 @@ import {
   ShieldCheck,
   RotateCcw,
   SkipForward,
+  Pause,
 } from 'lucide-react';
 import { getRoomById, checkRoomAnswer, TOTAL_ROOMS } from '../data/rooms';
 import {
@@ -36,6 +37,7 @@ function getCategoryStyle(category) {
 export default function GameArena({
   player,
   scoringSettings,
+  isTimerPaused = false,
   onSubmitAnswer,
   onUseHint,
   onSkipRoom,
@@ -65,24 +67,49 @@ export default function GameArena({
   const toastTimerRef = useRef(null);
   const isAwayRef = useRef(false);
 
+  const pausedByAdmin = Boolean(isTimerPaused || player.isTimerPaused);
+  const playerRef = useRef(player);
+  playerRef.current = player;
+
   const room = getRoomById(player.currentRoom);
-  const remainingSeconds = computeRemainingSeconds(player, now, player.allocatedMinutes);
+  const remainingSeconds = computeRemainingSeconds(
+    player,
+    now,
+    player.allocatedMinutes,
+    pausedByAdmin
+  );
   const isHintUnlocked = (player.unlockedHintRooms || []).includes(room.id);
   const codeLines = room.codeSnippet.split('\n');
 
-  // Tick every second while player is active
+  // Tick every second while player is active (and not globally paused)
   useEffect(() => {
-    if (player.status !== 'active') return undefined;
+    if (player.status !== 'active' || pausedByAdmin) return undefined;
+    setNow(Date.now());
     const interval = window.setInterval(() => {
       const currentNow = Date.now();
       setNow(currentNow);
-      const rem = computeRemainingSeconds(player, currentNow, player.allocatedMinutes);
+      const latestPlayer = playerRef.current;
+      const rem = computeRemainingSeconds(
+        latestPlayer,
+        currentNow,
+        latestPlayer.allocatedMinutes,
+        false
+      );
       if (rem <= 0) {
-        onTimeout(player.id);
+        onTimeout(latestPlayer.id);
       }
     }, 500);
-    return () => window.clearInterval(interval);
-  }, [player, onTimeout]);
+    const onVisChange = () => {
+      if (document.visibilityState === 'visible') {
+        setNow(Date.now());
+      }
+    };
+    document.addEventListener('visibilitychange', onVisChange);
+    return () => {
+      window.clearInterval(interval);
+      document.removeEventListener('visibilitychange', onVisChange);
+    };
+  }, [player.id, player.status, pausedByAdmin, onTimeout]);
 
   // Detect tab switch / window blur while player is actively playing
   useEffect(() => {
@@ -237,8 +264,8 @@ export default function GameArena({
   const solvedCount = Number(player.completedRooms) || 0;
   const skippedCount = Number(player.skippedCount) || 0;
   const progressPct = Math.round((solvedCount / TOTAL_ROOMS) * 100);
-  const timerUrgent = remainingSeconds <= 60;
-  const timerWarning = remainingSeconds > 60 && remainingSeconds <= 300;
+  const timerUrgent = !pausedByAdmin && remainingSeconds <= 60;
+  const timerWarning = !pausedByAdmin && remainingSeconds > 60 && remainingSeconds <= 300;
 
   if (player.status === 'completed' || player.status === 'timeout') {
     const escaped = player.status === 'completed';
@@ -515,20 +542,35 @@ export default function GameArena({
           {/* Live Countdown Timer */}
           <div
             className={`rounded-xl border px-3.5 py-2.5 ${
-              timerUrgent
+              pausedByAdmin
+                ? 'border-cyber-amber/70 bg-cyber-amber/15'
+                : timerUrgent
                 ? 'border-cyber-crimson/70 bg-cyber-crimson/10'
                 : timerWarning
                 ? 'border-cyber-amber/60 bg-cyber-amber/10'
                 : 'border-cyber-border bg-cyber-bg/80'
             }`}
           >
-            <div className="flex items-center gap-1 text-[11px] font-medium text-cyber-muted">
-              <Clock className="h-3 w-3" aria-hidden="true" />
-              Time Remaining
+            <div className="flex items-center justify-between gap-1 text-[11px] font-medium text-cyber-muted">
+              <span className="flex items-center gap-1">
+                {pausedByAdmin ? (
+                  <Pause className="h-3 w-3 text-cyber-amber" aria-hidden="true" />
+                ) : (
+                  <Clock className="h-3 w-3" aria-hidden="true" />
+                )}
+                Time Remaining
+              </span>
+              {pausedByAdmin ? (
+                <span className="rounded border border-cyber-amber/50 bg-cyber-amber/20 px-1.5 py-0.2 font-mono text-[9px] font-bold text-cyber-amber">
+                  PAUSED
+                </span>
+              ) : null}
             </div>
             <div
               className={`tabular-nums font-mono text-base font-bold sm:text-lg ${
-                timerUrgent
+                pausedByAdmin
+                  ? 'text-cyber-amber'
+                  : timerUrgent
                   ? 'animate-pulse text-cyber-crimson'
                   : timerWarning
                   ? 'text-cyber-amber'
@@ -539,6 +581,16 @@ export default function GameArena({
             </div>
           </div>
         </div>
+
+        {pausedByAdmin ? (
+          <div
+            role="status"
+            className="mt-3 flex items-center gap-2 rounded-xl border border-cyber-amber/50 bg-cyber-amber/10 px-3.5 py-2 text-xs font-medium text-cyber-amber"
+          >
+            <Pause className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+            All countdown timers are paused by the Game Administrator.
+          </div>
+        ) : null}
 
         {/* Progress Bar */}
         <div className="mt-4">
