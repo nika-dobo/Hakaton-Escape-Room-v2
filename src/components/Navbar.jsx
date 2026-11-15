@@ -1,5 +1,5 @@
 import React from 'react';
-import { Shield, Terminal, ExternalLink, Radio } from 'lucide-react';
+import { Shield, Terminal, ExternalLink, Radio, Trophy } from 'lucide-react';
 
 export default function Navbar({
   activeView,
@@ -47,6 +47,20 @@ export default function Navbar({
           >
             <Terminal className="h-4 w-4" aria-hidden="true" />
             Player View
+          </button>
+
+          <button
+            type="button"
+            onClick={() => onSelectView('leaderboard')}
+            aria-current={activeView === 'leaderboard' ? 'page' : undefined}
+            className={`inline-flex min-h-[44px] items-center gap-2 rounded-lg border px-4 py-2 text-sm font-semibold transition-all duration-150 ${
+              activeView === 'leaderboard'
+                ? 'border-cyber-amber/70 bg-cyber-amber/15 text-cyber-amber shadow-[0_0_15px_rgba(245,158,11,0.18)]'
+                : 'border-cyber-border bg-cyber-surface text-cyber-muted hover:border-slate-600 hover:text-cyber-text'
+            }`}
+          >
+            <Trophy className="h-4 w-4" aria-hidden="true" />
+            Leaderboard
           </button>
 
           <button

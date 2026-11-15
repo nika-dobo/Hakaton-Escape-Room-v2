@@ -42,19 +42,24 @@ export default function GameArena({
   onTabFocusChange,
   onTimeout,
   onLeaveSession,
-  onOpenAdminView,
+  onOpenLeaderboard,
 }) {
   const pointsCorrect = scoringSettings?.pointsCorrect ?? POINTS_CORRECT;
   const pointsWrong = scoringSettings?.pointsWrong ?? POINTS_WRONG;
   const pointsPaidHint = scoringSettings?.pointsPaidHint ?? POINTS_PAID_HINT;
   const pointsSkip = scoringSettings?.pointsSkip ?? 0;
-  const totalFreeHints = scoringSettings?.freeHintsCount ?? INITIAL_FREE_HINTS;
+  const configuredFreeHints =
+    player?.initialFreeHints ?? scoringSettings?.freeHintsCount ?? INITIAL_FREE_HINTS;
+  const freeHintsLeft = Number(player.freeHintsRemaining) || 0;
+  const totalFreeHints = Math.max(freeHintsLeft, configuredFreeHints);
+
   const [answerInput, setAnswerInput] = useState('');
   const [validationMsg, setValidationMsg] = useState('');
-  const [feedbackAnim, setFeedbackAnim] = useState(null); // 'correct' | 'wrong' | null
-  const [toast, setToast] = useState(null); // { id, type, title, subtitle }
+  const [feedbackAnim, setFeedbackAnim] = useState(null);
+  const [toast, setToast] = useState(null);
   const [now, setNow] = useState(() => Date.now());
   const [confirmExit, setConfirmExit] = useState(false);
+  const [confirmSkip, setConfirmSkip] = useState(false);
   const inputRef = useRef(null);
   const animTimerRef = useRef(null);
   const toastTimerRef = useRef(null);
@@ -63,46 +68,54 @@ export default function GameArena({
   const room = getRoomById(player.currentRoom);
   const remainingSeconds = computeRemainingSeconds(player, now, player.allocatedMinutes);
   const isHintUnlocked = (player.unlockedHintRooms || []).includes(room.id);
-  const freeHintsLeft = player.freeHintsRemaining;
   const codeLines = room.codeSnippet.split('\n');
 
   // Tick every second while player is active
   useEffect(() => {
     if (player.status !== 'active') return undefined;
     const interval = window.setInterval(() => {
-      const tickNow = Date.now();
-      setNow(tickNow);
-      const secs = computeRemainingSeconds(player, tickNow, player.allocatedMinutes);
-      if (secs <= 0) {
+      const currentNow = Date.now();
+      setNow(currentNow);
+      const rem = computeRemainingSeconds(player, currentNow, player.allocatedMinutes);
+      if (rem <= 0) {
         onTimeout(player.id);
       }
-    }, 1000);
+    }, 500);
     return () => window.clearInterval(interval);
   }, [player, onTimeout]);
 
-  // Track tab / window switches while active
+  // Detect tab switch / window blur while player is actively playing
   useEffect(() => {
     if (player.status !== 'active' || !onTabFocusChange) return undefined;
 
-    const updateAway = (away) => {
-      if (isAwayRef.current === away) return;
-      isAwayRef.current = away;
-      onTabFocusChange(player.id, away);
+    const markAway = () => {
+      if (!isAwayRef.current) {
+        isAwayRef.current = true;
+        onTabFocusChange(player.id, true);
+      }
+    };
+
+    const markReturned = () => {
+      if (isAwayRef.current && document.visibilityState === 'visible') {
+        isAwayRef.current = false;
+        onTabFocusChange(player.id, false);
+      }
     };
 
     const handleVisibility = () => {
-      if (document.hidden) {
-        updateAway(true);
-      } else if (document.hasFocus()) {
-        updateAway(false);
+      if (document.visibilityState === 'hidden') {
+        markAway();
+      } else {
+        markReturned();
       }
     };
 
-    const handleBlur = () => updateAway(true);
+    const handleBlur = () => {
+      markAway();
+    };
+
     const handleFocus = () => {
-      if (!document.hidden) {
-        updateAway(false);
-      }
+      markReturned();
     };
 
     document.addEventListener('visibilitychange', handleVisibility);
@@ -120,6 +133,7 @@ export default function GameArena({
   useEffect(() => {
     setAnswerInput('');
     setValidationMsg('');
+    setConfirmSkip(false);
     if (player.status === 'active') {
       inputRef.current?.focus({ preventScroll: true });
     }
@@ -157,7 +171,7 @@ export default function GameArena({
 
     if (!answerInput.trim()) {
       setValidationMsg('Enter an answer before submitting.');
-      inputRef.current?.focus();
+      inputRef.current?.focus({ preventScroll: true });
       return;
     }
 
@@ -204,8 +218,9 @@ export default function GameArena({
     }
   };
 
-  const handleSkipClick = () => {
+  const handleConfirmSkipRoom = () => {
     if (player.status !== 'active') return;
+    setConfirmSkip(false);
     onSkipRoom(player.id, room.id);
     setAnswerInput('');
     setValidationMsg('');
@@ -219,12 +234,20 @@ export default function GameArena({
     );
   };
 
-  const progressPct = Math.round(((player.completedRooms || 0) / TOTAL_ROOMS) * 100);
+  const solvedCount = Number(player.completedRooms) || 0;
+  const skippedCount = Number(player.skippedCount) || 0;
+  const progressPct = Math.round((solvedCount / TOTAL_ROOMS) * 100);
   const timerUrgent = remainingSeconds <= 60;
   const timerWarning = remainingSeconds > 60 && remainingSeconds <= 300;
 
   if (player.status === 'completed' || player.status === 'timeout') {
     const escaped = player.status === 'completed';
+    const totalHintsUsed = Math.max(
+      Number(player.hintsUsed) || 0,
+      Array.isArray(player.unlockedHintRooms) ? player.unlockedHintRooms.length : 0
+    );
+    const totalWrongAttempts = Number(player.wrongAttempts) || 0;
+
     return (
       <div className="mx-auto max-w-3xl px-4 py-10 sm:px-6">
         <div className="cyber-panel overflow-hidden rounded-2xl p-6 sm:p-10">
@@ -279,7 +302,7 @@ export default function GameArena({
             <div className="rounded-xl border border-cyber-border bg-cyber-bg/80 p-4 text-center">
               <div className="text-xs text-cyber-muted">Rooms Cleared</div>
               <div className="tabular-nums mt-1 font-mono text-2xl font-bold text-cyber-cyan">
-                {player.completedRooms || 0}/{TOTAL_ROOMS}
+                {solvedCount}/{TOTAL_ROOMS}
               </div>
             </div>
             <div className="rounded-xl border border-cyber-border bg-cyber-bg/80 p-4 text-center">
@@ -291,7 +314,7 @@ export default function GameArena({
             <div className="rounded-xl border border-cyber-border bg-cyber-bg/80 p-4 text-center">
               <div className="text-xs text-cyber-muted">Hints / Errors</div>
               <div className="tabular-nums mt-1 font-mono text-2xl font-bold text-cyber-amber">
-                {player.hintsUsed || 0} / {player.wrongAttempts || 0}
+                {totalHintsUsed} / {totalWrongAttempts}
               </div>
             </div>
           </div>
@@ -299,7 +322,7 @@ export default function GameArena({
           <div className="mt-8 flex flex-col justify-center gap-3 sm:flex-row">
             <button
               type="button"
-              onClick={onOpenAdminView}
+              onClick={onOpenLeaderboard}
               className="inline-flex min-h-[48px] items-center justify-center gap-2 rounded-xl bg-cyber-cyan px-6 py-3 text-sm font-bold text-slate-950 transition-colors hover:bg-cyan-300"
             >
               <ShieldCheck className="h-4 w-4" aria-hidden="true" />
@@ -394,6 +417,48 @@ export default function GameArena({
         </div>
       ) : null}
 
+      {/* Skip Room Confirmation Modal */}
+      {confirmSkip ? (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="skip-confirm-title"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-cyber-bg/80 p-4 backdrop-blur-sm"
+        >
+          <div className="cyber-panel w-full max-w-sm rounded-2xl border border-cyber-amber/40 p-6 shadow-2xl">
+            <div className="flex items-start gap-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-cyber-amber/40 bg-cyber-amber/10 text-cyber-amber">
+                <SkipForward className="h-5 w-5" aria-hidden="true" />
+              </div>
+              <div>
+                <h2 id="skip-confirm-title" className="text-base font-bold text-cyber-text">
+                  Skip Room {String(room.id).padStart(2, '0')}?
+                </h2>
+                <p className="mt-1 text-xs leading-relaxed text-cyber-muted">
+                  Skipping advances you to the next room ({pointsSkip >= 0 ? `+${pointsSkip}` : pointsSkip} pts) and will not count this room as decrypted.
+                </p>
+              </div>
+            </div>
+            <div className="mt-5 flex items-center justify-end gap-2.5">
+              <button
+                type="button"
+                onClick={() => setConfirmSkip(false)}
+                className="rounded-lg border border-cyber-border bg-cyber-surface px-4 py-2 text-xs font-semibold text-cyber-text transition-colors hover:border-slate-500"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmSkipRoom}
+                className="rounded-lg bg-cyber-amber px-4 py-2 text-xs font-bold text-slate-950 transition-colors hover:bg-amber-400"
+              >
+                Confirm Skip
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       {/* Arena HUD Header */}
       <section
         aria-label="Player status telemetry"
@@ -480,7 +545,8 @@ export default function GameArena({
           <div className="mb-1.5 flex items-center justify-between text-xs text-cyber-muted">
             <span>Escape Progress</span>
             <span className="tabular-nums font-mono">
-              {player.completedRooms || 0} of {TOTAL_ROOMS} decrypted ({progressPct}%)
+              {solvedCount} of {TOTAL_ROOMS} decrypted ({progressPct}%)
+              {skippedCount > 0 ? ` • ${skippedCount} skipped` : ''}
             </span>
           </div>
           <div className="h-2 w-full overflow-hidden rounded-full bg-cyber-bg">
@@ -622,7 +688,7 @@ export default function GameArena({
 
             <button
               type="button"
-              onClick={handleSkipClick}
+              onClick={() => setConfirmSkip(true)}
               title={`Skip this room (${pointsSkip >= 0 ? `+${pointsSkip}` : pointsSkip} pts)`}
               className="inline-flex min-h-[48px] shrink-0 items-center justify-center gap-2 rounded-xl border border-slate-600/80 bg-cyber-surfaceElevated px-4 py-3 text-sm font-semibold text-cyber-text transition-all duration-150 hover:border-cyber-cyan/60 hover:text-cyber-cyan active:scale-[0.98]"
             >

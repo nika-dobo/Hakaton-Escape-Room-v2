@@ -5,6 +5,7 @@ import BriefingModal from './components/BriefingModal';
 import GameArena from './components/GameArena';
 import AdminDashboard from './components/AdminDashboard';
 import AdminAuthGate from './components/AdminAuthGate';
+import PublicLeaderboard from './components/PublicLeaderboard';
 import {
   subscribeStore,
   getStoreSnapshot,
@@ -28,11 +29,15 @@ import {
   removePlayerSession,
   resetAllSessions,
   seedDemoPlayers,
+  getSessionTerminatedNotice,
+  clearSessionTerminatedNotice,
 } from './services/realtimeStore';
 
 function getViewFromHash() {
   if (typeof window === 'undefined') return 'player';
-  return window.location.hash === '#/admin' ? 'admin' : 'player';
+  if (window.location.hash === '#/admin') return 'admin';
+  if (window.location.hash === '#/leaderboard') return 'leaderboard';
+  return 'player';
 }
 
 export default function App() {
@@ -82,6 +87,11 @@ export default function App() {
 
   // Clear local session pointer if admin wiped/removed this player or player explicitly left
   useEffect(() => {
+    const stored = getStoredPlayerId();
+    if (activePlayerId && !stored) {
+      setActivePlayerId(null);
+      return;
+    }
     if (
       activePlayerId &&
       (!storeState.players[activePlayerId] || storeState.players[activePlayerId].status === 'left')
@@ -89,11 +99,12 @@ export default function App() {
       setStoredPlayerId(null);
       setActivePlayerId(null);
     }
-  }, [activePlayerId, storeState.players]);
+  }, [activePlayerId, storeState.players, storeState.resetEpoch, storeState.removedIds]);
 
   const handleSelectView = (view) => {
     setActiveView(view);
-    const targetHash = view === 'admin' ? '#/admin' : '#/';
+    const targetHash =
+      view === 'admin' ? '#/admin' : view === 'leaderboard' ? '#/leaderboard' : '#/';
     if (window.location.hash !== targetHash) {
       window.location.hash = targetHash;
     }
@@ -114,8 +125,13 @@ export default function App() {
   };
 
   const handleLeaveSession = () => {
-    if (currentPlayer?.status === 'briefing' && currentPlayer?.name) {
+    if (currentPlayer?.status === 'briefing' && !currentPlayer?.startTime && currentPlayer?.name) {
       setLastDraftName(currentPlayer.name);
+    } else if (
+      currentPlayer &&
+      (currentPlayer.status === 'completed' || currentPlayer.status === 'timeout')
+    ) {
+      setLastDraftName(currentPlayer.name || '');
     } else {
       setLastDraftName('');
     }
@@ -140,16 +156,21 @@ export default function App() {
   };
 
   const allPlayers = Object.values(storeState.players || {});
-  const activeCount = allPlayers.filter((p) => p.status === 'active').length;
-  const globalMinutes = storeState.settings?.globalDurationMinutes || 60;
+  const playerCount = Math.max(allPlayers.length, Number(storeState.playerCount) || 0);
+  const activeCount = Math.max(
+    allPlayers.filter((p) => p.status === 'active').length,
+    Number(storeState.activeCount) || 0
+  );
+  const globalMinutes = Number(storeState.settings?.globalDurationMinutes) || 60;
   const scoringSettings = getScoringSettings(storeState);
+  const sessionNotice = getSessionTerminatedNotice();
 
   return (
     <div className="flex min-h-screen flex-col">
       <Navbar
         activeView={activeView}
         onSelectView={handleSelectView}
-        playerCount={allPlayers.length}
+        playerCount={playerCount}
         activeCount={activeCount}
         onOpenAdminTab={handleOpenAdminTab}
       />
@@ -173,14 +194,26 @@ export default function App() {
               onLockAdmin={handleLockAdmin}
             />
           )
+        ) : activeView === 'leaderboard' ? (
+          <PublicLeaderboard
+            storeState={storeState}
+            currentPlayer={currentPlayer}
+            onBackToPlayer={() => handleSelectView('player')}
+            onStartNewRun={() => {
+              handleLeaveSession();
+              handleSelectView('player');
+            }}
+          />
         ) : !currentPlayer ? (
           <EntryScreen
             onJoin={handleJoin}
             globalDurationMinutes={globalMinutes}
             scoringSettings={scoringSettings}
             initialName={lastDraftName}
+            sessionNotice={sessionNotice}
+            onDismissNotice={clearSessionTerminatedNotice}
           />
-        ) : currentPlayer.status === 'briefing' ? (
+        ) : currentPlayer.status === 'briefing' && !currentPlayer.startTime ? (
           <BriefingModal
             playerName={currentPlayer.name}
             allocatedMinutes={globalMinutes}
@@ -198,7 +231,7 @@ export default function App() {
             onTabFocusChange={reportPlayerFocusChange}
             onTimeout={markPlayerTimeout}
             onLeaveSession={handleLeaveSession}
-            onOpenAdminView={() => handleSelectView('admin')}
+            onOpenLeaderboard={() => handleSelectView('leaderboard')}
           />
         )}
       </div>

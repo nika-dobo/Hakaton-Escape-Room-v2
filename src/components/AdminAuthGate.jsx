@@ -8,24 +8,45 @@ export default function AdminAuthGate({ onAuthenticated, onBackToPlayer }) {
   const [error, setError] = useState('');
   const [shake, setShake] = useState(false);
 
-  const handleSubmit = (e) => {
+  const triggerError = () => {
+    setError('Access denied: Invalid administrator password.');
+    setShake(false);
+    window.requestAnimationFrame(() => {
+      setShake(true);
+      window.setTimeout(() => setShake(false), 500);
+    });
+  };
+
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!password.trim()) {
+    const cleaned = password.trim();
+    if (!cleaned) {
       setError('Please enter the administrator password.');
       return;
     }
 
-    if (verifyAdminPassword(password)) {
+    if (verifyAdminPassword(cleaned)) {
       setError('');
       onAuthenticated();
-    } else {
-      setError('Access denied: Invalid administrator password.');
-      setShake(false);
-      window.requestAnimationFrame(() => {
-        setShake(true);
-        window.setTimeout(() => setShake(false), 500);
-      });
+      return;
     }
+
+    try {
+      const res = await fetch('/api/state', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'VERIFY_ADMIN', password: cleaned }),
+      });
+      if (res.ok) {
+        setError('');
+        onAuthenticated();
+        return;
+      }
+    } catch {
+      // Offline fallback already checked above
+    }
+
+    triggerError();
   };
 
   return (
@@ -118,7 +139,7 @@ export default function AdminAuthGate({ onAuthenticated, onBackToPlayer }) {
               onClick={onBackToPlayer}
               className="inline-flex min-h-[44px] w-full items-center justify-center gap-2 rounded-xl border border-cyber-border bg-cyber-surface px-4 py-2.5 text-xs font-semibold text-cyber-muted transition-colors hover:border-slate-600 hover:text-cyber-text"
             >
-              <ArrowLeft className="h-3.5 w-3.5" aria-hidden="true" />
+              <ArrowLeft className="h-4 w-4" aria-hidden="true" />
               Back to Player View
             </button>
           </div>
