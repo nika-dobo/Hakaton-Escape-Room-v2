@@ -54,6 +54,7 @@ export default function GameArena({
   const [feedbackAnim, setFeedbackAnim] = useState(null); // 'correct' | 'wrong' | null
   const [toast, setToast] = useState(null); // { id, type, title, subtitle }
   const [now, setNow] = useState(() => Date.now());
+  const [confirmExit, setConfirmExit] = useState(false);
   const inputRef = useRef(null);
   const animTimerRef = useRef(null);
   const toastTimerRef = useRef(null);
@@ -120,7 +121,7 @@ export default function GameArena({
     setAnswerInput('');
     setValidationMsg('');
     if (player.status === 'active') {
-      inputRef.current?.focus();
+      inputRef.current?.focus({ preventScroll: true });
     }
   }, [player.currentRoom, player.status]);
 
@@ -348,6 +349,51 @@ export default function GameArena({
         </div>
       ) : null}
 
+      {/* Exit Confirmation Modal */}
+      {confirmExit ? (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="exit-confirm-title"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-cyber-bg/80 p-4 backdrop-blur-sm"
+        >
+          <div className="cyber-panel w-full max-w-sm rounded-2xl border border-cyber-crimson/40 p-6 shadow-2xl">
+            <div className="flex items-start gap-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-cyber-crimson/40 bg-cyber-crimson/10 text-cyber-crimson">
+                <AlertTriangle className="h-5 w-5" aria-hidden="true" />
+              </div>
+              <div>
+                <h2 id="exit-confirm-title" className="text-base font-bold text-cyber-text">
+                  Exit Current Session?
+                </h2>
+                <p className="mt-1 text-xs leading-relaxed text-cyber-muted">
+                  Leaving now will pause your active run. You can rejoin later with the same callsign.
+                </p>
+              </div>
+            </div>
+            <div className="mt-5 flex items-center justify-end gap-2.5">
+              <button
+                type="button"
+                onClick={() => setConfirmExit(false)}
+                className="rounded-lg border border-cyber-border bg-cyber-surface px-4 py-2 text-xs font-semibold text-cyber-text transition-colors hover:border-slate-500"
+              >
+                Stay in Room
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setConfirmExit(false);
+                  onLeaveSession();
+                }}
+                className="rounded-lg bg-cyber-crimson px-4 py-2 text-xs font-bold text-white transition-colors hover:bg-red-500"
+              >
+                Confirm Exit
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       {/* Arena HUD Header */}
       <section
         aria-label="Player status telemetry"
@@ -363,7 +409,7 @@ export default function GameArena({
               </span>
               <button
                 type="button"
-                onClick={onLeaveSession}
+                onClick={() => setConfirmExit(true)}
                 title="Exit current session"
                 className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-cyber-border text-cyber-muted transition-colors hover:border-cyber-crimson/50 hover:text-cyber-crimson"
                 aria-label="Exit current player session"

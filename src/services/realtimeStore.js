@@ -81,6 +81,8 @@ let channel = null;
 let eventSource = null;
 let pollIntervalId = null;
 let initialized = false;
+let inFlightPostCount = 0;
+let lastMutationAt = 0;
 
 function emitChange() {
   for (const listener of listeners) {
@@ -187,18 +189,31 @@ function mergeIncomingState(incoming) {
   const incomingEpoch = Number(incoming.resetEpoch) || 0;
   const currentEpoch = Number(currentState.resetEpoch) || 0;
 
+  // Never let a stale snapshot from before our latest local reset overwrite us
+  if (incomingEpoch < currentEpoch) {
+    return;
+  }
+
   if (incomingEpoch > currentEpoch) {
     // Admin triggered a global reset
+    const s = incoming.settings || {};
     const next = {
       players: incoming.players || {},
       settings: {
-        globalDurationMinutes:
-          Number(incoming.settings?.globalDurationMinutes) || DEFAULT_DURATION_MINUTES,
+        globalDurationMinutes: Number(s.globalDurationMinutes) || DEFAULT_DURATION_MINUTES,
+        pointsCorrect:
+          s.pointsCorrect !== undefined ? Number(s.pointsCorrect) : POINTS_CORRECT,
+        pointsWrong: s.pointsWrong !== undefined ? Number(s.pointsWrong) : POINTS_WRONG,
+        pointsPaidHint:
+          s.pointsPaidHint !== undefined ? Number(s.pointsPaidHint) : POINTS_PAID_HINT,
+        pointsSkip: s.pointsSkip !== undefined ? Number(s.pointsSkip) : POINTS_SKIP,
+        freeHintsCount:
+          s.freeHintsCount !== undefined ? Number(s.freeHintsCount) : INITIAL_FREE_HINTS,
         adminPasswordHash:
-          incoming.settings?.adminPasswordHash ||
+          s.adminPasswordHash ||
           currentState.settings?.adminPasswordHash ||
           DEFAULT_ADMIN_PASSWORD,
-        updatedAt: Number(incoming.settings?.updatedAt) || Date.now(),
+        updatedAt: Number(s.updatedAt) || Date.now(),
       },
       lanUrls: Array.isArray(incoming.lanUrls) ? incoming.lanUrls : currentState.lanUrls || [],
       revision: Math.max(currentState.revision + 1, Number(incoming.revision) || 1),
@@ -218,14 +233,18 @@ function mergeIncomingState(incoming) {
     // Server is authoritative for multi-device player list
     nextPlayers = { ...incomingPlayers };
 
-    // Preserve local active player if created very recently and not yet pushed to server
+    // Never overwrite or drop the active local player with an older server snapshot
     const myPlayerId = getStoredPlayerId();
-    if (myPlayerId && currentState.players[myPlayerId] && !nextPlayers[myPlayerId]) {
+    if (myPlayerId && currentState.players[myPlayerId] && incoming.fromAction !== 'REMOVE_PLAYER') {
       const localPlayer = currentState.players[myPlayerId];
-      const ageMs = Date.now() - (localPlayer.createdAt || localPlayer.lastUpdated || 0);
-      if (ageMs < 5000 && incomingEpoch === currentEpoch) {
+      const serverPlayer = nextPlayers[myPlayerId];
+      if (!serverPlayer) {
+        if (localPlayer.status !== 'left') {
+          nextPlayers[myPlayerId] = localPlayer;
+          postServerAction({ type: 'UPSERT_PLAYER', player: localPlayer });
+        }
+      } else if ((localPlayer.lastUpdated || 0) > (serverPlayer.lastUpdated || 0)) {
         nextPlayers[myPlayerId] = localPlayer;
-        postServerAction({ type: 'UPSERT_PLAYER', player: localPlayer });
       }
     }
   } else {
@@ -306,6 +325,8 @@ function mergeIncomingState(incoming) {
 }
 
 async function postServerAction(action) {
+  inFlightPostCount += 1;
+  const startedAt = Date.now();
   try {
     const res = await fetch('/api/state', {
       method: 'POST',
@@ -314,24 +335,31 @@ async function postServerAction(action) {
     });
     if (res.ok) {
       const serverState = await res.json();
-      mergeIncomingState({ ...serverState, fromServer: true });
+      if (startedAt >= lastMutationAt - 50) {
+        mergeIncomingState({ ...serverState, fromServer: true, fromAction: action.type });
+      }
     }
   } catch {
     // Offline or static bundle mode: BroadcastChannel + localStorage + optional Cloud DB still work
+  } finally {
+    inFlightPostCount = Math.max(0, inFlightPostCount - 1);
   }
 }
 
 async function pollServerState() {
+  if (inFlightPostCount > 0) return;
+  const pollStartedAt = Date.now();
   try {
     const res = await fetch('/api/state', { cache: 'no-store' });
     if (res.ok) {
+      if (inFlightPostCount > 0 || pollStartedAt < lastMutationAt) return;
       const serverState = await res.json();
       mergeIncomingState({ ...serverState, fromServer: true });
     }
   } catch {
-    // Ignore when running without Vite backend
+    // Ignore when running without backend
   }
-  if (getCloudDbUrl()) {
+  if (getCloudDbUrl() && inFlightPostCount === 0) {
     pullFromCloudDb();
   }
 }
@@ -488,7 +516,8 @@ export function updateAdminPassword(newPassword) {
   return true;
 }
 
-function commitPlayer(updatedPlayer) {
+function commitPlayer(updatedPlayer, options = {}) {
+  lastMutationAt = Date.now();
   const nextState = {
     ...currentState,
     players: {
@@ -501,7 +530,11 @@ function commitPlayer(updatedPlayer) {
   saveLocalState(nextState);
   broadcastLocal(nextState);
   emitChange();
-  postServerAction({ type: 'UPSERT_PLAYER', player: updatedPlayer });
+  postServerAction({
+    type: 'UPSERT_PLAYER',
+    player: updatedPlayer,
+    isNewRegistration: Boolean(options.isNewRegistration),
+  });
   pushPlayerToCloudDb(updatedPlayer);
   return updatedPlayer;
 }
@@ -531,23 +564,59 @@ export function formatSecondsMMSS(totalSeconds) {
   return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
 }
 
-export function isPlayerNameTaken(rawName) {
+function findPlayerByName(rawName) {
   const normalized = String(rawName || '').trim().toLowerCase();
-  if (!normalized) return false;
-  return Object.values(currentState.players || {}).some(
-    (p) => String(p.name || '').trim().toLowerCase() === normalized
+  if (!normalized) return null;
+  return (
+    Object.values(currentState.players || {}).find(
+      (p) => String(p.name || '').trim().toLowerCase() === normalized
+    ) || null
   );
+}
+
+export function isPlayerNameTaken(rawName) {
+  const existing = findPlayerByName(rawName);
+  if (!existing) return false;
+  return existing.status !== 'disconnected' && existing.status !== 'left';
 }
 
 export function registerPlayer(rawName) {
   const name = rawName.trim().slice(0, 32);
-  if (isPlayerNameTaken(name)) {
+  const now = Date.now();
+  const existing = findPlayerByName(name);
+
+  if (existing) {
+    if (existing.status === 'disconnected' || existing.status === 'left') {
+      const restoredStatus = existing.startTime ? 'active' : 'briefing';
+      const allocatedMinutes =
+        restoredStatus === 'briefing'
+          ? currentState.settings.globalDurationMinutes || DEFAULT_DURATION_MINUTES
+          : existing.allocatedMinutes || currentState.settings.globalDurationMinutes || DEFAULT_DURATION_MINUTES;
+
+      const resumed = {
+        ...existing,
+        status: restoredStatus,
+        isDisconnected: false,
+        allocatedMinutes,
+        remainingSeconds:
+          restoredStatus === 'briefing'
+            ? allocatedMinutes * 60
+            : computeRemainingSeconds(existing, now, allocatedMinutes),
+        lastHeartbeat: now,
+        lastUpdated: now,
+        lastEvent: 'Reconnected to Session',
+      };
+
+      setStoredPlayerId(resumed.id);
+      commitPlayer(resumed);
+      return { ok: true, player: resumed, resumed: true };
+    }
+
     return {
       ok: false,
       error: 'This player name is already taken. Please choose a different callsign.',
     };
   }
-  const now = Date.now();
   const id = `plr_${now}_${Math.random().toString(36).slice(2, 7)}`;
   const allocatedMinutes =
     currentState.settings.globalDurationMinutes || DEFAULT_DURATION_MINUTES;
@@ -580,7 +649,7 @@ export function registerPlayer(rawName) {
   };
 
   setStoredPlayerId(id);
-  commitPlayer(player);
+  commitPlayer(player, { isNewRegistration: true });
   return { ok: true, player };
 }
 
@@ -813,6 +882,7 @@ export function markPlayerDisconnected(playerId, reason = 'closed') {
     revision: currentState.revision + 1,
   };
 
+  lastMutationAt = now;
   currentState = nextState;
   saveLocalState(nextState);
   broadcastLocal(nextState);
@@ -866,6 +936,7 @@ export function updateScoringSettings(newScoring) {
     revision: currentState.revision + 1,
   };
 
+  lastMutationAt = now;
   currentState = nextState;
   saveLocalState(nextState);
   broadcastLocal(nextState);
@@ -958,6 +1029,7 @@ export function updateGlobalTimerSettings(minutes, applyToActive = true) {
     revision: currentState.revision + 1,
   };
 
+  lastMutationAt = now;
   currentState = nextState;
   saveLocalState(nextState);
   broadcastLocal(nextState);
@@ -981,6 +1053,7 @@ export function removePlayerSession(playerId) {
     revision: currentState.revision + 1,
   };
 
+  lastMutationAt = Date.now();
   currentState = nextState;
   saveLocalState(nextState);
   if (channel) {
@@ -997,6 +1070,7 @@ export function removePlayerSession(playerId) {
 
 export function resetAllSessions() {
   const now = Date.now();
+  lastMutationAt = now;
   const nextState = {
     players: {},
     settings: {
@@ -1009,6 +1083,7 @@ export function resetAllSessions() {
   };
 
   setStoredPlayerId(null);
+  lastMutationAt = Date.now();
   currentState = nextState;
   saveLocalState(nextState);
   if (channel) {
@@ -1132,6 +1207,7 @@ export function seedDemoPlayers() {
     revision: currentState.revision + 1,
   };
 
+  lastMutationAt = now;
   currentState = nextState;
   saveLocalState(nextState);
   broadcastLocal(nextState);

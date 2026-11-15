@@ -40,6 +40,7 @@ export default function App() {
   const [activeView, setActiveView] = useState(getViewFromHash);
   const [activePlayerId, setActivePlayerId] = useState(() => getStoredPlayerId());
   const [adminAuthed, setAdminAuthed] = useState(() => isAdminAuthenticated());
+  const [lastDraftName, setLastDraftName] = useState('');
 
   useEffect(() => {
     const onHashChange = () => {
@@ -104,6 +105,7 @@ export default function App() {
   };
 
   const handleJoin = (name) => {
+    setLastDraftName(name);
     const result = registerPlayer(name);
     if (result?.ok && result.player) {
       setActivePlayerId(result.player.id);
@@ -112,6 +114,11 @@ export default function App() {
   };
 
   const handleLeaveSession = () => {
+    if (currentPlayer?.status === 'briefing' && currentPlayer?.name) {
+      setLastDraftName(currentPlayer.name);
+    } else {
+      setLastDraftName('');
+    }
     if (
       currentPlayer &&
       (currentPlayer.status === 'active' || currentPlayer.status === 'briefing')
@@ -171,11 +178,12 @@ export default function App() {
             onJoin={handleJoin}
             globalDurationMinutes={globalMinutes}
             scoringSettings={scoringSettings}
+            initialName={lastDraftName}
           />
         ) : currentPlayer.status === 'briefing' ? (
           <BriefingModal
             playerName={currentPlayer.name}
-            allocatedMinutes={currentPlayer.allocatedMinutes || globalMinutes}
+            allocatedMinutes={globalMinutes}
             scoringSettings={scoringSettings}
             onStartGame={() => startPlayerGame(currentPlayer.id)}
             onLeaveSession={handleLeaveSession}

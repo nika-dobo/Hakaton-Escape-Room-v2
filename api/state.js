@@ -159,7 +159,7 @@ export default async function handler(req, res) {
       if (action.type === 'UPSERT_PLAYER' && action.player?.id) {
         const incomingName = String(action.player.name || '').trim().toLowerCase();
         const isNewPlayer = !state.players[action.player.id];
-        if (isNewPlayer && incomingName) {
+        if (action.isNewRegistration && isNewPlayer && incomingName) {
           const duplicate = Object.values(state.players).some(
             (p) => String(p.name || '').trim().toLowerCase() === incomingName
           );
@@ -169,11 +169,14 @@ export default async function handler(req, res) {
             });
           }
         }
-        state.players[action.player.id] = {
-          ...action.player,
-          lastHeartbeat: now,
-          lastUpdated: now,
-        };
+        const existing = state.players[action.player.id];
+        if (!existing || (action.player.lastUpdated || 0) >= (existing.lastUpdated || 0)) {
+          state.players[action.player.id] = {
+            ...action.player,
+            lastHeartbeat: now,
+            lastUpdated: Math.max(now, action.player.lastUpdated || 0),
+          };
+        }
       } else if (action.type === 'HEARTBEAT_PLAYER' && action.playerId) {
         const cur = state.players[action.playerId];
         if (

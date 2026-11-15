@@ -695,19 +695,19 @@ export default function AdminDashboard({
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[820px] border-collapse text-left text-sm">
+            <table className="w-full border-collapse text-left text-sm">
               <thead>
                 <tr className="border-b border-cyber-border bg-cyber-bg/70 font-mono text-xs uppercase tracking-wider text-cyber-muted">
-                  <th className="px-4 py-3.5">Rank</th>
-                  <th className="px-4 py-3.5">Player Name</th>
-                  <th className="px-4 py-3.5">Current Room</th>
-                  <th className="px-4 py-3.5">Remaining Time</th>
-                  <th className="px-4 py-3.5">Current Score</th>
-                  <th className="px-4 py-3.5">Hints Used</th>
-                  <th className="px-4 py-3.5">Skipped</th>
-                  <th className="px-4 py-3.5">Tab Switches</th>
-                  <th className="px-4 py-3.5">Status</th>
-                  <th className="px-4 py-3.5 text-right">Action</th>
+                  <th className="px-2.5 py-3">Rank</th>
+                  <th className="px-2.5 py-3">Player Name</th>
+                  <th className="px-2.5 py-3">Current Room</th>
+                  <th className="px-2.5 py-3">Remaining Time</th>
+                  <th className="px-2.5 py-3">Current Score</th>
+                  <th className="px-2.5 py-3">Hints Used</th>
+                  <th className="px-2.5 py-3">Skipped</th>
+                  <th className="px-2.5 py-3">Tab Switches</th>
+                  <th className="px-2.5 py-3">Status</th>
+                  <th className="px-2.5 py-3 text-right">Action</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-cyber-border/70">
@@ -749,7 +749,7 @@ export default function AdminDashboard({
                       key={player.id}
                       className="transition-colors hover:bg-cyber-surfaceElevated/60"
                     >
-                      <td className="px-4 py-3.5">
+                      <td className="px-2.5 py-3">
                         <span
                           className={`tabular-nums inline-flex h-7 w-7 items-center justify-center rounded-lg font-mono text-xs font-bold ${
                             rank === 1
@@ -765,7 +765,7 @@ export default function AdminDashboard({
                         </span>
                       </td>
 
-                      <td className="px-4 py-3.5">
+                      <td className="px-2.5 py-3">
                         <div className="font-mono font-semibold text-cyber-text">
                           {player.name}
                         </div>
@@ -774,7 +774,7 @@ export default function AdminDashboard({
                         </div>
                       </td>
 
-                      <td className="px-4 py-3.5">
+                      <td className="px-2.5 py-3">
                         <div className="flex items-center gap-2">
                           <span className="tabular-nums font-mono font-bold text-cyber-text">
                             {player.currentRoom} / {TOTAL_ROOMS}
@@ -783,7 +783,7 @@ export default function AdminDashboard({
                             {roomInfo.category}
                           </span>
                         </div>
-                        <div className="mt-1.5 h-1.5 w-32 overflow-hidden rounded-full bg-cyber-bg">
+                        <div className="mt-1.5 h-1.5 w-20 overflow-hidden rounded-full bg-cyber-bg">
                           <div
                             className="h-full rounded-full bg-gradient-to-r from-cyber-cyan to-cyber-emerald"
                             style={{ width: `${Math.max(3, progressPct)}%` }}
@@ -791,7 +791,7 @@ export default function AdminDashboard({
                         </div>
                       </td>
 
-                      <td className="px-4 py-3.5">
+                      <td className="px-2.5 py-3">
                         <span
                           className={`tabular-nums font-mono text-sm font-bold ${
                             urgentTimer
@@ -805,7 +805,7 @@ export default function AdminDashboard({
                         </span>
                       </td>
 
-                      <td className="px-4 py-3.5">
+                      <td className="px-2.5 py-3">
                         <div className="flex items-center gap-2">
                           <span
                             className={`tabular-nums font-mono text-base font-bold ${
@@ -889,7 +889,7 @@ export default function AdminDashboard({
                         ) : null}
                       </td>
 
-                      <td className="px-4 py-3.5">
+                      <td className="px-2.5 py-3">
                         <div className="tabular-nums font-mono text-sm font-semibold text-cyber-text">
                           {player.hintsUsed || 0} used
                         </div>
@@ -898,7 +898,7 @@ export default function AdminDashboard({
                         </div>
                       </td>
 
-                      <td className="px-4 py-3.5">
+                      <td className="px-2.5 py-3">
                         <span
                           className={`tabular-nums inline-flex items-center rounded-lg border px-2.5 py-1 font-mono text-xs font-semibold ${
                             (player.skippedCount || 0) > 0
@@ -910,7 +910,7 @@ export default function AdminDashboard({
                         </span>
                       </td>
 
-                      <td className="px-4 py-3.5">
+                      <td className="px-2.5 py-3">
                         <div className="flex flex-wrap items-center gap-1.5">
                           <span
                             className={`tabular-nums inline-flex items-center rounded-lg border px-2.5 py-1 font-mono text-xs font-semibold ${
@@ -931,7 +931,7 @@ export default function AdminDashboard({
                         </div>
                       </td>
 
-                      <td className="px-4 py-3.5">
+                      <td className="px-2.5 py-3">
                         <span
                           className={`inline-flex items-center rounded-full border px-2.5 py-1 font-mono text-xs font-semibold ${statusBadge.cls}`}
                         >
@@ -939,7 +939,7 @@ export default function AdminDashboard({
                         </span>
                       </td>
 
-                      <td className="px-4 py-3.5 text-right">
+                      <td className="px-2.5 py-3 text-right">
                         <button
                           type="button"
                           onClick={() => onRemovePlayer(player.id)}

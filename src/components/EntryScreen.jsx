@@ -1,10 +1,15 @@
 import React, { useState } from 'react';
 import { Play, Code2, Layers, Cpu, Clock, Award, HelpCircle } from 'lucide-react';
 
-export default function EntryScreen({ onJoin, globalDurationMinutes, scoringSettings }) {
+export default function EntryScreen({
+  onJoin,
+  globalDurationMinutes,
+  scoringSettings,
+  initialName = '',
+}) {
   const pointsCorrect = scoringSettings?.pointsCorrect ?? 100;
   const freeHintsCount = scoringSettings?.freeHintsCount ?? 3;
-  const [nickname, setNickname] = useState('');
+  const [nickname, setNickname] = useState(initialName);
   const [error, setError] = useState('');
 
   const handleSubmit = (e) => {
@@ -28,12 +33,12 @@ export default function EntryScreen({ onJoin, globalDurationMinutes, scoringSett
         <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-cyber-cyan/70 to-transparent" />
 
         <div className="grid gap-8 lg:grid-cols-12 lg:items-center">
-          <div className="space-y-5 lg:col-span-7">
+          <div className="min-w-0 space-y-5 lg:col-span-7">
             <div className="inline-flex items-center gap-2 rounded-md border border-cyber-cyan/30 bg-cyber-cyan/10 px-3 py-1 font-mono text-xs font-semibold text-cyber-cyan">
               SYSTEM ACCESS REQUIRED
             </div>
 
-            <h1 className="text-3xl font-bold tracking-tight text-cyber-text sm:text-4xl">
+            <h1 className="break-words text-2xl font-bold tracking-tight text-cyber-text sm:text-4xl">
               Escape the 50-Room Web Engineering Gauntlet
             </h1>
 
@@ -83,7 +88,7 @@ export default function EntryScreen({ onJoin, globalDurationMinutes, scoringSett
             </form>
           </div>
 
-          <div className="space-y-3 lg:col-span-5">
+          <div className="min-w-0 space-y-3 lg:col-span-5">
             <div className="rounded-xl border border-cyber-border bg-cyber-bg/80 p-4">
               <div className="mb-3 flex items-center justify-between border-b border-cyber-border pb-2">
                 <span className="font-mono text-xs font-semibold text-cyber-muted">
